@@ -1,0 +1,19 @@
+---
+title: "tarea1"
+author: "mathias salas"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Introducción
+
+Este documento presenta la tarea del **analisis descriptivo** del ingreso total del hogar utilizando los datos de la encuesta CASEN 2022
+
+# Procesamiento de datos 
+
+en primer lugar, se instalan los paquetes necesarios y librerias necesarias para que el codigo pueda ejecutarse
+
+```{r librerias, warning=FALSE}
+library(tidyverse)
+
+```
