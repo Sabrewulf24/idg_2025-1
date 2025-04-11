@@ -1,11 +1,9 @@
 # Instalar librerías si no las tienes
-install.packages("ggplot2")
 install.packages("car")
 install.packages("broom")
 install.packages("ggfortify")
 install.packages("haven")
 library(haven)
-library(ggplot2)
 library(car)
 library(broom)
 
