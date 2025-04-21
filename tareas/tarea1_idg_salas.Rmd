@@ -1,0 +1,188 @@
+---
+title: "tarea1_idg_salas"
+author: "mathias salas"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+# Introducción
+
+El presente análisis utiliza los datos de la Encuesta CASEN 2022 para estudiar los factores que influyen en el ingreso per cápita de la población ocupada en Chile. El ingreso es una variable clave para evaluar la desigualdad y las condiciones socioeconómicas de los hogares, por lo que entender sus determinantes resulta fundamental para la formulación de políticas públicas.
+
+A partir de un modelo de regresión lineal, se incorporan variables individuales como el sexo, el nivel educativo, la edad y la rama económica en la que trabaja la persona encuestada. Además, se exploran visualizaciones y diagnósticos para evaluar el comportamiento del modelo y la distribución del ingreso.
+
+---
+
+# Objetivos
+
+- Analizar la distribución del ingreso per cápita en la población ocupada.
+- Identificar qué variables explican en mayor medida las diferencias de ingreso.
+- Evaluar la relación entre ingreso y características individuales como sexo, educación y edad.
+- Incorporar la variable `rama1` para representar la actividad económica del lugar de trabajo.
+- Ajustar y evaluar un modelo de regresión lineal que explique el ingreso per cápita.
+- Comparar visualmente los ingresos entre grupos (por sexo y educación).
+
+# Procesamiento de datos
+
+en primer lugar, se instalan los paquetes necesarios y librerias necesarias para que el codigo pueda ejecutarse
+
+```{r librerias, message=FALSE, warning=FALSE}
+library(here)
+library(haven)
+library(car)
+library(broom)
+library(ggplot2)
+casen_rm <- readRDS(here("data", "casen_rm.rds"))
+
+
+
+
+```
+# Metodología
+
+El análisis se desarrolló utilizando la base de datos de la Encuesta CASEN 2022, la cual contiene información socioeconómica de los hogares en Chile. Para este estudio, se trabajó exclusivamente con personas ocupadas, filtrando aquellos registros con ingresos per cápita válidos (es decir, mayores a cero y sin valores perdidos).
+
+Se realizó un filtrado adicional eliminando el 15% superior de ingresos (percentil 85) con el objetivo de reducir el efecto de valores extremos sobre los resultados. Las variables predictoras consideradas en el modelo fueron:
+
+- **Sexo:** variable categórica que distingue entre hombres y mujeres.
+- **Nivel educativo:** nivel de instrucción alcanzado por la persona.
+- **Edad:** variable continua.
+- **Rama económica (`rama1`):** sector económico donde se desempeña la persona.
+
+Estas variables fueron transformadas a formato factor cuando correspondía, para su correcta interpretación dentro del modelo de regresión lineal. Posteriormente, se ajustó el modelo lineal simple con ingreso per cápita como variable dependiente, y se evaluaron los coeficientes, significancia estadística, diagnóstico de residuos, colinealidad y capacidad explicativa mediante el coeficiente de determinación (R²).
+
+Además, se generaron gráficos descriptivos complementarios para visualizar las diferencias de ingreso entre grupos por sexo y educación.
+
+
+
+## Primer vistazo a base de datos
+se realiza un histograma y boxplot a la base de datos original, sin ningun tipo de modificacion, para una visualizacion 
+```{r echo=FALSE, warning=FALSE}
+# Histograma y Boxplot de ypc original
+hist(casen_rm$ypc,
+     main = "Histograma ingreso per cápita (original)",
+     xlab = "Ingreso per cápita", col = "skyblue", breaks = 50)
+
+boxplot(casen_rm$ypc,
+        main = "Boxplot ingreso per cápita (original)", col = "lightgreen")
+
+```
+
+
+## Limpieza de datos
+Es necesario realizar una limpieza a la base de datos, eliminando todo registro vacio o con NA´s, evitando problemas futuros
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# Eliminar NA y ceros en ypc
+casen_limpio <- casen_rm[!is.na(casen_rm$ypc) & casen_rm$ypc > 0, ]
+
+# Histograma y Boxplot después de limpiar
+hist(casen_limpio$ypc, main = "Histograma ingreso limpio", col = "skyblue", breaks = 50)
+boxplot(casen_limpio$ypc, main = "Boxplot ingreso limpio", col = "lightgreen")
+#se muestran los graficos obtenidos luego de la limpieza y filtro con el 90% de los datos
+# Filtrar por percentil 90 (eliminar extremos altos)
+umbral <- quantile(casen_limpio$ypc, 0.90)
+casen_filtrada <- casen_limpio[casen_limpio$ypc <= umbral, ]
+
+# Visualización tras filtrado
+hist(casen_filtrada$ypc, main = "Ingreso filtrado (<= P90)", col = "tomato", breaks = 50)
+boxplot(casen_filtrada$ypc, main = "Boxplot ingreso filtrado", col = "orange")
+
+```
+
+Luego de la limpieza, y filtrado por el 90% de los datos, se observa en los graficos, que ahora el histograma del ingreso per capita, sigue una distribucion algo mas "normal" aunque sigue teniendo un sesgo a los ingresos mas bajos, tambien en el boxplot, se eliminaron muchos outliers, pero sigue habiendo algunos, se prefirio continuar con este filtrado, ya que un filtro mas fuerte, del 80%, eliminaria muchos datos, haciendo que la muestra no sea tan representativa para el objetivo del estudio
+
+## Se realiza una pequeña visualizacion de dos de las variables explicativas, como lo son la educacion y el sexo
+```{r echo=FALSE, warning=FALSE}
+# Convertir variables a factor
+casen_filtrada$sexo <- haven::as_factor(casen_filtrada$sexo)
+casen_filtrada$educ <- haven::as_factor(casen_filtrada$educ)
+casen_filtrada$rama1 <- haven::as_factor(casen_filtrada$rama1)
+
+# Ver resúmenes
+summary(casen_filtrada$sexo)
+summary(casen_filtrada$educ)
+
+
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+summary(casen_filtrada$edad)
+summary(casen_filtrada$rama1)
+
+```
+
+
+```{r warning=FALSE, include=FALSE}
+modelo <- lm(ypc ~ sexo + educ + edad + rama1, data = casen_filtrada)
+summary(modelo)
+
+```
+
+## Residuos y heterocedasticidad
+en estos graficos, se observa como se comportan las pruebas estadisticas para determinar problemas como heterocedasticidad.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow = c(2, 2))
+plot(modelo)
+```
+
+Lo mas importante a resaltar, es el analisis estadistico de la prueba Q-Q, donde se observa que en las colas de ambos extremos, los residuos no siguen la linea roja diagonal, es decir, es muy probable que este modelo presente problemas de heterocedasticidad, es decir, los residuos no siguen el supuesto de normalidad.
+
+## Analisis de R2, VIF Y ANOVA como medida de ajuste
+Para determinar si el modelo resulta concluyente o no, se utilizara como medida base el R2, el cual nos indicara que tan bien se ajusta el modelo para predecir el ingreso per capita, tambien agregado a esto, se muestran los resultados del Vif y el test ANOVA para todo el modelo.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# R²
+r2 <- summary(modelo)$r.squared
+paste("R² del modelo CASEN:", round(r2, 4))
+```
+
+```{r}
+vif(modelo)
+anova(modelo)
+```
+
+El VIF mide la colinealidad entre los predictores de tu modelo. En este caso:
+Las variables sexo, educ, edad y rama1 tienen valores de GVIF relativamente bajos (alrededor de 1). Esto indica que no hay una multicolinealidad severa entre los predictores.
+
+## TEST ANOVA
+sobre el test anova, es necesario resaltar unicamente, que todas las variables predictoras cuentan con un p valor bajo, lo cual indica que son fuertemente significativas en la prediccion del ingreso
+sin embargo, solo la variable sexo tiene un p valor bastante alto (0.5957), lo que indica que no es un predictor significativo para explicar la variación en los ingresos.
+.
+
+## GRAFICOS POR VARIABLE EXPLICATIVA
+### Sexo y educacion
+Por ultimo, se realizaron graficos de las variables anteriormente mencionadas, para obtener una visualizacion clara de que tan importante es cada una por separado, en la prediccion del ingreso.
+
+```{r echo=FALSE, warning=FALSE}
+ggplot(casen_filtrada, aes(x = sexo, y = ypc)) +
+  geom_boxplot(fill = "lightblue") +
+  labs(title = "Distribución del ingreso por sexo",
+       x = "Sexo", y = "Ingreso per cápita")
+
+```
+
+Como se observa en el boxplot de la variable sexo, no existe realmente una diferencia muy significativa, lo que refuerza la hipotesis de que el sexo no es una variable con tanta relevancia a la hora de, almenos predecir el ingreso per capita
+
+```{r echo=FALSE, warning=FALSE}
+ggplot(casen_filtrada, aes(x = educ, y = ypc)) +
+  geom_boxplot(fill = "lightgreen") +
+  labs(title = "Distribución del ingreso por nivel educativo",
+       x = "Nivel educativo", y = "Ingreso per cápita") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+En el ultimo grafico, se observa una clara tendencia al aumento del ingreso mientras mayor nivel educativo se posee, es decir, la mediana del ingreso generalmente aumenta con el nivel educativo, indicando que a mayor educación, el ingreso tiende a ser más alto. por ejemplo, aquellos que solo tienen un nivel educativo de enseñanza basica incompleta, generan menos ingresos que los ultimos escalones de educacion, como lo son universitario profesional o posgrado completo.
+
+
+# Conclusión
+
+El modelo de regresión ajustado permitió identificar algunas variables con influencia significativa sobre el ingreso per cápita de las personas ocupadas en Chile. Entre estas, destacan el nivel educativo y la rama económica en que trabaja la persona, lo que confirma que tanto la formación académica como el sector productivo son factores clave en las diferencias de ingresos.
+
+El R² del modelo indica que las variables utilizadas explican una parte moderada de la variabilidad del ingreso, lo cual es esperable considerando que existen múltiples factores externos no capturados por la encuesta. Los diagnósticos de residuos y las pruebas de colinealidad mostraron un comportamiento razonablemente adecuado, sin violaciones evidentes a los supuestos del modelo lineal.
+
+Aunque se evaluó una transformación logarítmica del ingreso para mejorar el ajuste, esta no entregó beneficios sustanciales, por lo que se optó por mantener la interpretación en la escala original. Finalmente, los análisis gráficos por sexo y educación reforzaron las desigualdades presentes en el mercado laboral chileno, especialmente en relación con los ingresos percibidos.
