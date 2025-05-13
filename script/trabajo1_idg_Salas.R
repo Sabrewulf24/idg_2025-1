@@ -5,7 +5,7 @@
 # install.packages(c("DBI", "RPostgres", "sf", "ggplot2", "cowplot", "biscale"))
 
 # =============================================================================
-# 2) CARGAR LIBRERÍAS NECESARIAS
+# 2) CARGAR LAS LIBRERÍAS NECESARIAS
 # =============================================================================
 
 library(DBI)

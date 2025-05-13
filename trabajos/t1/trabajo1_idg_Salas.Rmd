@@ -20,7 +20,7 @@ porcentaje del total de personas por comuna representan los adultos
 mayores, ademas se realiza otra consulta para crear el otro indicador
 porcentual, el cual se realiza
 
-------------------------------------------------------------------------
+
 
 # Objetivos
 
