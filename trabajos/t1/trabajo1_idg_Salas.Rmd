@@ -1,0 +1,389 @@
+---
+title: "trabajo1_idg_salas"
+auuthor: "Mathias Salas"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Analisis espacial y bivariado del Censo2017: Adultos Mayores y Viviendas Precarias en la Provincia de Santiago
+
+El presente análisis utiliza los datos del Censo 2017 para estudiar como
+se relacionan los factores de porcentaje de adultos mayores y el
+porcentaje de viviendas precarias (todo tipo de vivienda en mal estado)
+
+A partir de consultas realizadas en sql del la base de datos del Censo
+2017, se incorporan estas variables individuales para conocer que
+porcentaje del total de personas por comuna representan los adultos
+mayores, ademas se realiza otra consulta para crear el otro indicador
+porcentual, el cual se realiza
+
+------------------------------------------------------------------------
+
+# Objetivos
+
+-   Analizar la distribución de las personas mayores de 65 años en la
+    provincia de santiago.
+-   Analizar la distribución de las personas que viven en casas con
+    condiciones precarias en la misma provincia.
+-   Evaluar la relación entre ambos indicadores porcentuales.
+-   realizar mapas simples y bivariados para estos indicadores.
+-   Lograr Comparar visualmente la relacion entre las personas mayores y
+    las viviendas precarias mediante los distintos mapas.
+
+# Procesamiento de datos
+
+en primer lugar, se instalan los paquetes necesarios y librerias
+necesarias para que el codigo pueda ejecutarse
+
+```{r message=FALSE, warning=FALSE}
+library(DBI)
+library(RPostgres)
+library(sf)
+library(ggplot2)
+library(cowplot)
+library(biscale)
+```
+
+posteriormente, se configuran los parametros locales de conexion, para que desde R se apliquen las consultas sql y se conecte la base de datos
+
+```{r cars, warning=FALSE}
+# Configuración de parámetros de conexión
+db_host     <- "localhost"
+db_port     <- 5432
+db_name     <- "Censo2017"
+db_user     <- "postgres"
+db_password <- "postgres"
+
+# Conectar
+con <- dbConnect(
+  Postgres(),
+  dbname = db_name,
+  host = db_host,
+  port = db_port,
+  user = db_user,
+  password = db_password
+)
+
+```
+
+# Metodología
+
+🧪 Metodología El análisis se desarrolló a partir de los datos del Censo
+2017, accedidos mediante consultas SQL a través de la plataforma pgAdmin
+4. Para este estudio, se seleccionaron exclusivamente las comunas
+pertenecientes a la Provincia de Santiago, en la Región Metropolitana de
+Chile.
+
+1.  Preparación de los datos A través de sentencias SQL, se extrajo la
+    información necesaria desde tablas desagregadas por persona y
+    vivienda. Se calcularon dos indicadores clave a nivel comunal:
+
+Porcentaje de personas mayores de 65 años, en relación al total de la
+población comunal.
+
+Porcentaje de personas viviendo en viviendas precarias, considerando
+aquellas clasificadas como mediaguas, rucas o viviendas de material
+ligero.
+
+Ambos indicadores fueron exportados y trabajados en R para su posterior
+análisis espacial. La tabla comunal fue vinculada con un archivo
+shapefile que contenía la geometría de las comunas de la Región
+Metropolitana.
+
+posteriormente se realizaron mapas tematicos simples, que representan
+espacialmente a travez de una graduacion de colores, el porcentaje de
+cada una de las consultas sql
+
+luego se realizo una clasificación bivariada de los indicadores Una vez
+calculados, ambos indicadores fueron clasificados en tres niveles (bajo,
+medio y alto) según su distribución estadística.
+
+finalmente se elaboro el mapa bivariado, el cual utilizo la informacion
+a nivel comunal de la provincia de santiago, de los dos indicadores
+porcentuales ya calculados en la consulta sql. Se construyó un mapa
+temático que permite visualizar simultáneamente los dos indicadores
+mediante una escala de colores combinada, donde cada tonalidad del mapa
+refleja una interacción específica entre el nivel de envejecimiento y el
+nivel de precariedad habitacional en cada comuna.
+
+
+## calculo de indicadores porcentuales y formulacion matematica 
+
+ Cálculo del % de Adultos Mayores:
+ Se obtiene dividiendo la población de 65 años o más entre la población total de la comuna.
+ Fórmula: (Población ≥ 65 años / Población total) * 100
+
+ Cálculo del % de Viviendas Precarias:
+ Se calcula dividiendo el número de personas que viven en viviendas precarias
+ (como mediaguas o viviendas con materiales no durables) entre la población total de la comuna.
+ Fórmula: (Población en viviendas precarias / Población total) * 100
+ 
+## codigos sql empleados
+
+```{r warning=FALSE}
+sql_indicadores <- "
+SELECT c.nom_comuna, c.codigo_comuna::double precision,
+       COUNT(*) AS total_personas,
+       COUNT(*) FILTER (WHERE p.p09 >65) AS total_adultos_mayores,
+       ROUND(COUNT(*) FILTER (WHERE p.p09 >65) * 100.0 / COUNT(*),2) AS ptje_adultos_mayores
+FROM personas AS p
+JOIN hogares AS h ON p.hogar_ref_id = h.hogar_ref_id  
+JOIN viviendas AS v ON h.vivienda_ref_id = v.vivienda_ref_id
+JOIN zonas AS z ON v.zonaloc_ref_id = z.zonaloc_ref_id
+JOIN comunas AS c ON z.codigo_comuna = c.codigo_comuna
+GROUP BY c.nom_comuna, c.codigo_comuna
+ORDER BY ptje_adultos_mayores DESC;"
+
+df_adultos_mayores <- dbGetQuery(con, sql_indicadores)
+
+```
+
+```{r warning=FALSE}
+sql_viviendas_precarias <- "
+SELECT c.nom_comuna, c.codigo_comuna::double precision,
+       COUNT(*) AS total_personas,
+       COUNT(*) FILTER (WHERE v.p01 = 5 OR v.p03b = 6) AS total_personas_viv_precaria,
+       ROUND(COUNT(*) FILTER (WHERE v.p01 = 5 OR v.p03b = 6) * 100.0 / COUNT(*), 2) AS ptje_viv_precarias
+FROM personas AS p
+JOIN hogares AS h ON p.hogar_ref_id = h.hogar_ref_id
+JOIN viviendas AS v ON h.vivienda_ref_id = v.vivienda_ref_id
+JOIN zonas AS z ON v.zonaloc_ref_id = z.zonaloc_ref_id
+JOIN comunas AS c ON z.codigo_comuna = c.codigo_comuna
+GROUP BY c.nom_comuna, c.codigo_comuna
+ORDER BY ptje_viv_precarias DESC;"
+
+df_viviendas_precarias <- dbGetQuery(con, sql_viviendas_precarias)
+
+
+```
+
+```{r warning=FALSE, include=FALSE}
+df_indicadores <- merge(df_adultos_mayores, df_viviendas_precarias, by = c("codigo_comuna", "nom_comuna"))
+
+```
+
+```{r warning=FALSE, include=FALSE}
+sql_geometria <- "
+SELECT cut::double precision AS codigo_comuna,
+       nom_comuna,
+       geom
+FROM dpa.comunas_rm_shp
+WHERE nom_provin = 'SANTIAGO';"
+
+sf_comunas <- st_read(con, query = sql_geometria)
+
+```
+
+# RESULTADOS
+
+```{r warning=FALSE, include=FALSE}
+sf_mapa <- merge(sf_comunas, df_indicadores, by = "codigo_comuna", all.x = FALSE)
+
+```
+
+Como primer vistazo, se añaden imagenes obtenidas directamente del
+resultado de las consultas sql en pgadmin 4. \### resultado consulta sql
+para indicador porcentual personas en viviendas precarias en la
+provincia de santiago
+
+### resultado consulta sql para indicador porcentual personas en viviendas precarias en la provincia de santiago
+
+![](C:/Users\Mathias\Pictures\Screenshots\viviprecarias.png)
+
+### resultado consulta sql para indicador porcentual adultos mayores en la provincia de santiago
+
+![](C:/Users\Mathias\Pictures\Screenshots/ptjeadultosmayorescomuna.png)
+
+## Visualización Individual de Indicadores: Adultos Mayores y Viviendas Precarias
+
+mediante mapas simples, se observa el comportamiento geografico de ambos
+indicadores en el territorio de la provincia de santiago
+
+### mapa simple porcentaje de adultos mayores por comuna en la provincia de santiago
+
+```{r echo=FALSE, warning=FALSE}
+# =============================================================================
+# 7) MAPAS TEMÁTICOS SIMPLES
+# =============================================================================
+map_adultos_mayores = ggplot(sf_mapa) +
+  geom_sf(aes(fill = ptje_adultos_mayores), color = "#AAAAAA30", size = 0.1) +  
+  labs(
+    title = "Porcentaje de Adultos Mayores",
+    fill  = "% Adultos Mayores"
+  ) +
+  theme_minimal()
+
+map_viv_precarias = ggplot(sf_mapa) +
+  geom_sf(aes(fill = ptje_viv_precarias), color = "#AAAAAA30", size = 0.1) +
+  labs(
+    title = "Porcentaje de Viviendas Precarias",
+    fill  = "% Viviendas Precarias"
+  ) +
+  theme_minimal()
+
+print(map_adultos_mayores)
+
+```
+
+### mapa simple porcentaje de personas con viviendas precarias por comuna en la provincia de santiago
+
+```{r echo=FALSE, warning=FALSE}
+print(map_viv_precarias)
+```
+
+
+
+## GRAFICO DISPERSION E INTERPRETACION DE LOS CUADRANTES
+
+```{r echo=FALSE, warning=FALSE}
+# =============================================================================
+# 8) GRÁFICO DE DISPERSIÓN BIVARIADO
+# =============================================================================
+# 8.1 Calcular medianas para dividir cuadrantes
+mediana_adultos_mayores = median(sf_mapa$ptje_adultos_mayores, na.rm = TRUE)
+mediana_viv_precarias    = median(sf_mapa$ptje_viv_precarias,   na.rm = TRUE)
+
+# 8.2 Crear la variable que indica el cuadrante según comparaciones con medianas
+sf_mapa$cuadrante = with(
+  sf_mapa,
+  ifelse(
+    ptje_adultos_mayores >= mediana_adultos_mayores & ptje_viv_precarias >= mediana_viv_precarias, 'Q1: Alta/Alta',
+    ifelse(
+      ptje_adultos_mayores <  mediana_adultos_mayores & ptje_viv_precarias >= mediana_viv_precarias, 'Q2: Baja/Alta',
+      ifelse(
+        ptje_adultos_mayores <  mediana_adultos_mayores & ptje_viv_precarias <  mediana_viv_precarias, 'Q3: Baja/Baja',
+        'Q4: Alta/Baja'
+      )
+    )
+  )
+)
+
+# 8.3 Definir paleta de colores manual para cada cuadrante
+colores_cuadrantes = c(
+  'Q1: Alta/Alta' = '#08519c',  # alto/alto
+  'Q2: Baja/Alta' = '#6baed6',  # bajo/alto
+  'Q3: Baja/Baja' = '#eff3ff',  # bajo/bajo
+  'Q4: Alta/Baja' = '#bdd7e7'   # alto/bajo
+)
+
+# 8.4 Construir scatterplot con líneas de mediana
+grafico_cuadrantes = ggplot(
+  sf_mapa,
+  aes(
+    x     = ptje_adultos_mayores,
+    y     = ptje_viv_precarias,
+    color = cuadrante
+  )
+) +
+  geom_point(size = 2) +
+  geom_vline(xintercept = mediana_adultos_mayores, linetype = 'dashed', color = 'gray50') +
+  geom_hline(yintercept = mediana_viv_precarias,    linetype = 'dashed', color = 'gray50') +
+  scale_color_manual(name = 'Cuadrante', values = colores_cuadrantes) +
+  labs(x = '% Adultos Mayores', y = '% Viviendas Precarias', title = 'Dispersión por Cuadrantes') +
+  theme_minimal()
+
+print(grafico_cuadrantes)
+
+```
+
+Existe cierta asociación entre la proporción de adultos mayores y
+viviendas precarias, aunque no es perfectamente lineal.
+
+Algunas comunas están en situación más crítica (Q1): alta presencia de
+adultos mayores y también alta precariedad.
+
+Las comunas en Q3 (baja/baja) podrían representar zonas con mejores
+condiciones sociales.
+
+## MAPA BIVARIADO DE ADULTOS MAYORES VS VIVIENDAS PRECARIAS
+
+se muestra a continuacion el resultado final de la creacion del mapa
+bivariado, donde a travez de la leyenda de 3x3, se analiza cada comuna y
+su porcentaje de adultos mayores y viviendas precarias La leyenda en la
+esquina inferior derecha indica cómo leer los colores: -Colores más
+oscuros en la esquina superior derecha: comunas con altos porcentajes en
+ambas variables. -Colores claros (esquina inferior izquierda): comunas
+con bajos porcentajes de adultos mayores y de precariedad. -Tonos lilas
+o rosados intensos (arriba a la izquierda): comunas con alta precariedad
+pero bajo % de adultos mayores. -Tonos celestes o turquesas (abajo a la
+derecha): comunas con alto % de adultos mayores pero baja precariedad.
+
+Este tipo de análisis espacial puede ser muy útil en la planificación territorial y diseño de políticas públicas, especialmente para:
+Focalizar políticas habitacionales y de envejecimiento activo.
+Asignar recursos para infraestructura social, como centros de salud o programas de asistencia.
+Priorizar comunas en intervenciones urbanas integrales, combinando necesidades habitacionales y de atención al adulto mayor.
+El valor agregado del mapa bivariado radica en su capacidad para visualizar simultáneamente dos dimensiones sociales, facilitando una comprensión integrada del territorio. Esta herramienta permite a tomadores de decisiones, urbanistas y académicos detectar zonas críticas y patrones complejos que no serían evidentes con mapas univariados.
+
+```{r echo=FALSE, warning=FALSE}
+# =============================================================================
+# 9) MAPA BIVARIADO CON BISCALE
+# =============================================================================
+# 9.1 Obtener geometría comunal para Santiago
+sql_comunas = "
+SELECT cut, nom_comuna, geom
+FROM dpa.comunas_rm_shp
+WHERE nom_provin = 'SANTIAGO';
+"
+sf_comunas_santiago = st_read(con, query = sql_comunas)
+
+# 9.2 Clasificar datos en 3 x 3 bivariado
+sf_mapa_bi = bi_class(sf_mapa, x = ptje_adultos_mayores, y = ptje_viv_precarias, dim = 3, style = 'jenks')
+
+
+# 9.3 Calcular bbox y centroides para etiquetas comunales
+caja = sf::st_bbox(sf_mapa_bi)
+sf_comunas_centroides = st_centroid(sf_comunas_santiago)
+
+# 9.4 Crear mapa bivariado sin bordes internos y con etiquetas
+mapa_bivariado_etiquetas = ggplot() +
+  geom_sf(data = sf_mapa_bi, aes(fill = bi_class), color = NA, show.legend = FALSE) +
+  geom_sf(data = sf_comunas_santiago, fill = NA, color = 'black', size = 0.4) +
+  geom_sf_text(data = sf_comunas_centroides, aes(label = nom_comuna), size = 1.75, fontface = 'bold') +
+  bi_scale_fill(pal = 'DkBlue', dim = 3) +
+  labs(title = 'Mapa bivariado para Adultos Mayores vs. Viviendas Precarias', subtitle = 'Provincia de Santiago, RM') +
+  coord_sf(xlim = c(caja['xmin'], caja['xmax']), ylim = c(caja['ymin'], caja['ymax']), expand = FALSE) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, face = 'bold'),
+        plot.subtitle = element_text(hjust = 0.5))
+
+# 9.5 Generar y posicionar leyenda bivariada
+leyenda_bivariada = bi_legend(pal = 'DkBlue', dim = 3, xlab = '% adultos mayores', ylab = '% Viviendas Precarias', size = 8)
+mapa_final = ggdraw() +
+  draw_plot(mapa_bivariado_etiquetas, x = 0,    y = 0,    width = 1,    height = 1) +
+  draw_plot(leyenda_bivariada,          x = 0.75, y = 0.05, width = 0.30, height = 0.30)
+
+print(mapa_final)
+
+```
+
+como pequeño analisis espacial de los resultados del mapa, se observa
+por ejemplo: Lo Barnechea y Las Condes: Colores turquesa claros, lo que
+indica alta proporción de adultos mayores, pero baja precariedad
+habitacional.
+
+San Ramón, Lo Espejo, El Bosque: Colores más oscuros, esto indicando
+alta precariedad y también alto porcentaje de adultos mayores, lo que
+las convierte en zonas de mayor vulnerabilidad.
+
+Cerro Navia, La Granja, Renca: Tonos más lilas (alta precariedad, pero
+menor proporción de adultos mayores).
+
+Providencia, Ñuñoa, Vitacura: Colores más suaves y turquesa, lo que
+indica mayor presencia de adultos mayores, pero baja precariedad.
+
+# CONCLUSION DEL TRABAJO
+Patrones espaciales observados
+Adultos Mayores:
+Se observa que las comunas con mayor proporción de adultos mayores se concentran principalmente en la zona nororiente de la provincia (como Las Condes, Vitacura, La Reina). Estas zonas coinciden con áreas de mayor nivel socioeconómico y acceso a servicios de salud y vivienda consolidada. En contraste, las comunas del sur y poniente muestran proporciones más bajas, probablemente debido a una población más joven y dinámica.
+
+Vivienda Precaria:
+El indicador muestra una concentración más alta de viviendas precarias en comunas del sur y poniente de Santiago, como Lo Espejo, La Pintana y San Ramón. Estas zonas tradicionalmente presentan menor acceso a servicios básicos, mayor densidad poblacional y condiciones socioeconómicas más vulnerables.
+
+Relación Bivariada:
+El mapa bivariado permite identificar sectores donde confluyen altos porcentajes de viviendas precarias y bajos porcentajes de adultos mayores, indicando áreas con población más joven y en situación vulnerable (por ejemplo, La Pintana o El Bosque). En cambio, zonas con alta proporción de adultos mayores y baja precariedad (como Ñuñoa o La Reina) reflejan condiciones más estables y envejecidas.
+
+una explicacion para estos patrones, puede ser las diferencias socioeconómicas, ya que existe una clara correlación espacial entre mayor envejecimiento y mejores condiciones habitacionales, lo que sugiere que la población adulta mayor se concentra en sectores con mayor estabilidad y recursos económicos. Por el contrario, las viviendas precarias predominan en comunas con menor ingreso per cápita.para complementar lo anterior, se hace la comparacion del ingreso per capita de las condes, el cual es de $1.129.510.
+mientras que Según datos del Registro Social de Hogares (RSH) al 21 de junio de 2019, el ingreso per cápita corregido en la comuna de San Ramón era de aproximadamente $1.158.000 anuales, es decir, alrededor de $96.500 mensuales. Este valor corresponde a la mediana del ingreso per cápita corregido para el tramo del 0% al 40% de menores ingresos en la comuna .
