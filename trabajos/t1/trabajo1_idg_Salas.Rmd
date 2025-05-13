@@ -76,9 +76,15 @@ El análisis se desarrolló a partir de los datos del Censo
 4. Para este estudio, se seleccionaron exclusivamente las comunas
 pertenecientes a la Provincia de Santiago, en la Región Metropolitana de
 Chile.
+<<<<<<< HEAD
 Preparación de los datos A través de sentencias SQL, se extrajo la
 información necesaria desde tablas desagregadas por persona y
 vivienda. Se calcularon dos indicadores clave a nivel comunal:
+
+Preparación de los datos A través de sentencias SQL, se extrajo lainformación 
+necesariadesde tablas desagregadas por persona y vivienda. Se calcularon dos 
+indicadores clave a nivel comunal:
+
 
 Porcentaje de personas mayores de 65 años, en relación al total de la
 población comunal.
@@ -227,12 +233,25 @@ print(map_adultos_mayores)
 
 ```
 
+Zonas con mayor porcentaje de adultos mayores:
+Las comunas en el norte y el centro de la provincia, como Vitacura, Las Condes y La Reina, tienen un porcentaje más alto de adultos mayores. Esto puede estar relacionado con la mayor presencia de viviendas de tipo más alto o con características sociodemográficas que tienden a atraer a una población más envejecida.
+
+Zonas con menor porcentaje de adultos mayores:
+Las áreas hacia el sur y suroeste, como algunas comunas de Maipú, La Florida, y Pudahuel, tienen un porcentaje más bajo. Esto puede deberse a una mayor presencia de población joven o de familias en crecimiento.
+
 ### mapa simple porcentaje de personas con viviendas precarias por comuna en la provincia de santiago
+
+
 
 ```{r echo=FALSE, warning=FALSE}
 print(map_viv_precarias)
 ```
 
+similar al caso del mapa anterior, se observan zonas con menor y mayor porcentaje de personas
+viviendo en casas en condiciones precarias, esto puede tener una explicacion sociodemografica
+y una relacion no lineal con el total de poblacion de adultos mayores, ya que hay sectores
+donde la poblacion de adultos mayores es alta, pero es bajo el porcentaje de viviendas en
+condiciones precarias, como por ejemplo lo son La Reina, Vitacura y Las Condes
 
 
 ## GRAFICO DISPERSION E INTERPRETACION DE LOS CUADRANTES
