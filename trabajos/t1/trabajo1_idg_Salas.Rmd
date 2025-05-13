@@ -100,7 +100,7 @@ Metropolitana.
 
 posteriormente se realizaron mapas tematicos simples, que representan
 espacialmente a travez de una graduacion de colores, el porcentaje de
-cada una de las consultas sql
+cada una de las consultas sql.
 
 luego se realizo una clasificación bivariada de los indicadores Una vez
 calculados, ambos indicadores fueron clasificados en tres niveles (bajo,
