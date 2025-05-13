@@ -71,15 +71,14 @@ con <- dbConnect(
 
 # Metodología
 
-🧪 Metodología El análisis se desarrolló a partir de los datos del Censo
+El análisis se desarrolló a partir de los datos del Censo
 2017, accedidos mediante consultas SQL a través de la plataforma pgAdmin
 4. Para este estudio, se seleccionaron exclusivamente las comunas
 pertenecientes a la Provincia de Santiago, en la Región Metropolitana de
 Chile.
-
-1.  Preparación de los datos A través de sentencias SQL, se extrajo la
-    información necesaria desde tablas desagregadas por persona y
-    vivienda. Se calcularon dos indicadores clave a nivel comunal:
+Preparación de los datos A través de sentencias SQL, se extrajo la
+información necesaria desde tablas desagregadas por persona y
+vivienda. Se calcularon dos indicadores clave a nivel comunal:
 
 Porcentaje de personas mayores de 65 años, en relación al total de la
 población comunal.
