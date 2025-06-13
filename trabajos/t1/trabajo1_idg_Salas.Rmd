@@ -20,7 +20,11 @@ porcentaje del total de personas por comuna representan los adultos
 mayores, ademas se realiza otra consulta para crear el otro indicador
 porcentual, el cual se realiza
 
+<<<<<<< HEAD
 
+=======
+------------------------------------------------------------------------
+>>>>>>> 576fe7cd5c7c7a634728d5b732446356c24a5394
 
 # Objetivos
 
@@ -77,15 +81,21 @@ El análisis se desarrolló a partir de los datos del Censo
 pertenecientes a la Provincia de Santiago, en la Región Metropolitana de
 Chile.
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 576fe7cd5c7c7a634728d5b732446356c24a5394
 Preparación de los datos A través de sentencias SQL, se extrajo la
 información necesaria desde tablas desagregadas por persona y
 vivienda. Se calcularon dos indicadores clave a nivel comunal:
 
+<<<<<<< HEAD
 Preparación de los datos A través de sentencias SQL, se extrajo lainformación 
 necesariadesde tablas desagregadas por persona y vivienda. Se calcularon dos 
 indicadores clave a nivel comunal:
 
 
+=======
+>>>>>>> 576fe7cd5c7c7a634728d5b732446356c24a5394
 Porcentaje de personas mayores de 65 años, en relación al total de la
 población comunal.
 
@@ -100,7 +110,11 @@ Metropolitana.
 
 posteriormente se realizaron mapas tematicos simples, que representan
 espacialmente a travez de una graduacion de colores, el porcentaje de
+<<<<<<< HEAD
 cada una de las consultas sql.
+=======
+cada una de las consultas sql
+>>>>>>> 576fe7cd5c7c7a634728d5b732446356c24a5394
 
 luego se realizo una clasificación bivariada de los indicadores Una vez
 calculados, ambos indicadores fueron clasificados en tres niveles (bajo,
@@ -233,6 +247,7 @@ print(map_adultos_mayores)
 
 ```
 
+<<<<<<< HEAD
 Zonas con mayor porcentaje de adultos mayores:
 Las comunas en el norte y el centro de la provincia, como Vitacura, Las Condes y La Reina, tienen un porcentaje más alto de adultos mayores. Esto puede estar relacionado con la mayor presencia de viviendas de tipo más alto o con características sociodemográficas que tienden a atraer a una población más envejecida.
 
@@ -243,15 +258,22 @@ Las áreas hacia el sur y suroeste, como algunas comunas de Maipú, La Florida, 
 
 
 
+=======
+### mapa simple porcentaje de personas con viviendas precarias por comuna en la provincia de santiago
+
+>>>>>>> 576fe7cd5c7c7a634728d5b732446356c24a5394
 ```{r echo=FALSE, warning=FALSE}
 print(map_viv_precarias)
 ```
 
+<<<<<<< HEAD
 similar al caso del mapa anterior, se observan zonas con menor y mayor porcentaje de personas
 viviendo en casas en condiciones precarias, esto puede tener una explicacion sociodemografica
 y una relacion no lineal con el total de poblacion de adultos mayores, ya que hay sectores
 donde la poblacion de adultos mayores es alta, pero es bajo el porcentaje de viviendas en
 condiciones precarias, como por ejemplo lo son La Reina, Vitacura y Las Condes
+=======
+>>>>>>> 576fe7cd5c7c7a634728d5b732446356c24a5394
 
 
 ## GRAFICO DISPERSION E INTERPRETACION DE LOS CUADRANTES
