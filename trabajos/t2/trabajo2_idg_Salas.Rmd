@@ -1,0 +1,750 @@
+---
+title: "trabajo2_idg_salas"
+auuthor: "Mathias Salas"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+ 
+# Introducción
+La microsimulación espacial es una técnica que permite estimar la distribución de características individuales o de hogares en unidades geográficas más pequeñas que aquellas disponibles en encuestas tradicionales. En este contexto, se utiliza la información de la Encuesta CASEN 2022, que está disponible a nivel comunal, y se combina con datos sociodemográficos del Censo 2017, que ofrece mayor detalle territorial, para proyectar variables relevantes a nivel de zona censal.
+
+El proceso de microsimulación consiste en asignar valores de las variables de interés a zonas geográficas más desagregadas, basándose en similitudes entre los individuos encuestados y las características agregadas del territorio. Esto se logra mediante técnicas como el raking o el matching, lo que permite obtener estimaciones más detalladas espacialmente, superando las limitaciones de representatividad muestral de encuestas como la CASEN a nivel intra-comunal.
+
+Esta herramienta es particularmente útil para el análisis de políticas públicas, ya que entrega una representación más realista de fenómenos sociales o de salud en el espacio urbano. En ciudades como Santiago, donde la desigualdad territorial es significativa, estas diferencias pueden perderse si se analiza solo a escala comunal.
+
+En este trabajo, se utiliza la microsimulación espacial para estudiar la relación entre el acceso reciente a atención en salud mental y las dificultades para llegar a centros de atención médica, enfocándonos en la Región Metropolitana de Santiago, la más poblada y urbanamente compleja del país.
+
+# Área de estudio
+La Región Metropolitana concentra cerca del 40% de la población nacional, lo que implica una alta diversidad sociodemográfica y desigualdades territoriales marcadas. Aunque en promedio presenta mejores indicadores de salud y acceso que otras regiones del país, al interior de sus comunas existen diferencias importantes según nivel socioeconómico, acceso a infraestructura de transporte, cobertura de servicios y presencia de centros de atención especializados.
+
+Esta región es el centro económico y administrativo de Chile, con una gran densidad poblacional y fuerte desarrollo urbano. Sin embargo, su sistema de salud presenta desafíos en términos de equidad espacial, especialmente en sectores periféricos o rurales como sectores de Puente Alto, La Pintana o San Bernardo, donde los tiempos de desplazamiento y la oferta de salud mental pueden ser insuficientes.
+
+La microsimulación permite representar con mayor fidelidad esta heterogeneidad, lo que resulta esencial para diseñar intervenciones focalizadas que consideren tanto las necesidades como las barreras específicas de cada territorio.
+
+#Justificación de la variable principal
+La salud mental se ha convertido en una dimensión crítica de la salud pública en Chile, especialmente tras la pandemia de COVID-19. Diversos estudios e informes han evidenciado un aumento en la prevalencia de trastornos como ansiedad, depresión y estrés postraumático, con un impacto significativo en la calidad de vida y el funcionamiento cotidiano de la población.
+
+En este contexto, contar con información territorial detallada sobre el acceso reciente a atención en salud mental resulta fundamental para diseñar políticas públicas eficientes y focalizadas. Sin embargo, la Encuesta CASEN 2022 sólo entrega esta información a nivel comunal, lo que limita el análisis de las diferencias intraurbanas.
+
+Por ello, este trabajo utiliza la microsimulación espacial para estimar, a nivel de zona censal, el porcentaje de personas que se atendieron en establecimientos de salud mental (psicólogo o psiquiatra) durante los últimos tres meses. Esta variable, derivada de s26c, se considera un indicador clave del uso efectivo de servicios de salud mental, y su distribución territorial permite identificar áreas donde existen mayores niveles de atención y, por lo tanto, posiblemente mayor acceso o necesidad detectada.
+
+Adicionalmente, se incorporan otras dos variables como insumos comparativos en el análisis espacial:
+
+Hacinamiento en la vivienda: Esta variable (ind_hacin) proviene de la CASEN 2022  y se relaciona con condiciones estructurales que pueden afectar la salud mental, como el estrés por falta de espacio o privacidad. Se utiliza para observar posibles correlaciones espaciales con el uso de servicios de salud mental.
+
+Problemas para llegar al lugar de atención de salud (s19a): También de la CASEN 2022, esta variable representa barreras geográficas o de transporte que dificultan el acceso a atención médica. Se considera útil para contrastar si las zonas con menos uso de salud mental coinciden con mayores dificultades de acceso físico.
+
+Ambas variables permiten contextualizar y contrastar espacialmente la distribución estimada del uso de servicios de salud mental, enriqueciendo la interpretación de los resultados.
+
+##carga de librerias
+se cargan a continuacion, todas las librerias utilizadas en este trabajo de microsimulacion
+
+```{r setup, include=FALSE}
+# LIBRERÍAS
+library(rakeR)
+library(RPostgres)
+library(DBI)
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(biscale)
+library(cowplot)
+library(here)
+```
+# Objetivos
+
+## Objetivo general:
+
+Estimar, mediante técnicas de microsimulación espacial, la distribución del acceso reciente a servicios de salud mental a nivel de zona censal en la Región Metropolitana, utilizando datos de la Encuesta CASEN 2022 y el Censo 2017.
+
+Objetivos específicos:
+
+Construir una variable binaria que indique si una persona se atendió en salud mental en los últimos tres meses, a partir de la variable s26c de la CASEN 2022.
+
+Aplicar el método de microsimulación con la librería rakeR para estimar esta variable a nivel de zona censal.
+
+Comparar espacialmente los resultados obtenidos con indicadores de hacinamiento y problemas de acceso a salud para identificar patrones o zonas prioritarias de intervención.
+
+Visualizar los resultados mediante mapas temáticos y bivariados que permitan interpretar territorialmente los niveles de acceso a salud mental en la región.
+
+
+
+# Metodología
+```{r}
+library(here)
+knitr::opts_knit$set(root.dir = here::here())
+
+# ENTRADAS
+cons_censo_df <- readRDS(here::here("data", "cons_censo_df.rds"))
+
+casen_raw <- readRDS(here::here("data", "casen_rm.rds"))
+
+
+
+
+```
+
+Se identifican las variables socio-demográficas presentes en el censo (edad, escolaridad, sexo).
+Se seleccionan las variables base necesarias en CASEN para microsimulación:
+estrato: código territorial,
+esc: escolaridad,
+edad: edad,
+sexo: sexo,
+e6a: años de escolaridad,
+s22a_preg: variable sobre si recibió atención en salud mental.
+Se crea un dataframe casen con solo estas variables y se elimina la versión completa para liberar memoria.
+
+
+
+
+
+Se recodifica la variable s22a_preg para que:
+1 indique que la persona sí recibió atención en salud mental,
+0 que no la recibió,
+NA cuando no está claro o no responde.
+Esta será la variable objetivo que se microsimulara espacialmente.
+
+
+```{r warning=FALSE, include=FALSE}
+#VARIABLES BASE
+col_cons <- sort(setdiff(names(cons_censo_df), c("GEOCODIGO", "COMUNA")))
+age_levels  <- grep("^edad", col_cons, value = TRUE)
+esc_levels  <- grep("^esco", col_cons, value = TRUE)
+sexo_levels <- grep("^sexo_", col_cons, value = TRUE)
+
+vars_base <- c("estrato", "esc", "edad", "sexo", "e6a", "s22a_preg")
+
+casen <- casen_raw[, vars_base, drop = FALSE]
+rm(casen_raw)
+
+# PREPROCESAMIENTO
+casen$Comuna <- substr(as.character(casen$estrato), 1, 5)
+casen$estrato <- NULL
+
+casen$esc <- as.integer(unclass(casen$esc))
+casen$edad <- as.integer(unclass(casen$edad))
+casen$e6a <- as.numeric(unclass(casen$e6a))
+casen$sexo <- as.integer(unclass(casen$sexo))
+casen$s22a_preg <- as.integer(unclass(casen$s22a_preg))
+
+# Recode s22a_preg: 1 = sí recibió atención mental, 0 = no
+casen$salud_mental <- ifelse(casen$s22a_preg == 1, 1,
+                             ifelse(casen$s22a_preg == 2, 0, NA))
+# IMPUTACIÓN DE ESCOLARIDAD
+idx_na <- which(is.na(casen$esc))
+fit <- lm(esc ~ e6a, data = casen[-idx_na, ])
+pred <- predict(fit, newdata = casen[idx_na, , drop = FALSE])
+casen$esc[idx_na] <- as.integer(round(pmax(0, pmin(29, pred))))
+
+casen$ID <- as.character(seq_len(nrow(casen)))
+
+# RECODIFICACIÓN PARA RAKE
+casen$edad_cat <- cut(
+  casen$edad,
+  breaks = c(0, 30, 40, 50, 60, 70, 80, Inf),
+  labels = age_levels,
+  right = FALSE, include.lowest = TRUE
+)
+
+casen$esc_cat <- factor(
+  with(casen,
+       ifelse(esc == 0, esc_levels[1],
+              ifelse(esc <= 8, esc_levels[2],
+                     ifelse(esc <= 12, esc_levels[3], esc_levels[4])))),
+  levels = esc_levels
+)
+
+casen$sexo_cat <- factor(
+  ifelse(casen$sexo == 2, sexo_levels[1],
+         ifelse(casen$sexo == 1, sexo_levels[2], NA)),
+  levels = sexo_levels
+)
+```
+
+Para filas donde falta la escolaridad (esc), se usa un modelo lineal simple que predice esc a partir de e6a (años de escolaridad).
+La predicción se limita para no salir de rangos posibles.
+Se reemplazan los valores faltantes con estas predicciones.
+Esto mejora la calidad de la variable para la microsimulación.
+
+
+
+
+```{r}
+# MICROSIMULACIÓN
+cons_censo_comunas <- split(cons_censo_df, cons_censo_df$COMUNA)
+inds_list <- split(casen, casen$Comuna)
+
+sim_list <- lapply(names(cons_censo_comunas), function(zona) {
+  cons_i <- cons_censo_comunas[[zona]]
+  col_order <- sort(setdiff(names(cons_i), c("COMUNA", "GEOCODIGO")))
+  cons_i <- cons_i[, c("GEOCODIGO", col_order), drop = FALSE]
+  
+  tmp <- inds_list[[zona]]
+  inds_i <- tmp[, c("ID", "edad_cat", "esc_cat", "sexo_cat"), drop = FALSE]
+  names(inds_i) <- c("ID", "Edad", "Escolaridad", "Sexo")
+  
+  w_frac <- weight(cons = cons_i, inds = inds_i,
+                   vars = c("Edad", "Escolaridad", "Sexo"))
+  sim_i <- integerise(weights = w_frac, inds = inds_i, seed = 123)
+  merge(sim_i, tmp[, c("ID", "salud_mental")], by = "ID", all.x = TRUE)
+})
+
+sim_df <- data.table::rbindlist(sim_list, idcol = "COMUNA")
+
+# CÁLCULO DE % QUE RECIBIÓ ATENCIÓN DE SALUD MENTAL
+zonas_saludmental <- aggregate(
+  salud_mental ~ zone,
+  data = sim_df,
+  FUN = function(x) {
+    total <- sum(!is.na(x))
+    con_atencion <- sum(x == 1, na.rm = TRUE)
+    round(100 * con_atencion / total, 2)
+  }
+)
+
+names(zonas_saludmental) <- c("geocodigo", "atencion_salud_mental")
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# EXPORTACIÓN A POSTGRESQL
+con <- dbConnect(
+  Postgres(),
+  dbname = "censo_rm_2017",
+  host = "localhost",
+  port = 5432,
+  user = "postgres",
+  password = "postgres"
+)
+
+dbWriteTable(
+  conn = con,
+  name = Id(schema = "dpa", table = "tmp_saludmental_rm"),
+  value = zonas_saludmental,
+  overwrite = TRUE,
+  row.names = FALSE
+)
+
+dbExecute(con, "CREATE INDEX ON dpa.tmp_saludmental_rm(geocodigo)")
+dbExecute(con, "ANALYZE dpa.tmp_saludmental_rm")
+dbExecute(con, "DROP TABLE IF EXISTS dpa.zonas_saludmental")
+
+dbExecute(con, "
+  CREATE TABLE dpa.zonas_saludmental AS
+  SELECT
+    z.*,
+    t.atencion_salud_mental
+  FROM dpa.zonas_censales_rm AS z
+  LEFT JOIN dpa.tmp_saludmental_rm AS t
+    ON z.geocodigo::text = t.geocodigo
+  WHERE urbano = 1 AND (nom_provin = 'SANTIAGO' OR nom_comuna = 'SAN BERNARDO' OR nom_comuna = 'PUENTE ALTO')
+")
+
+zonas_saludmental_sf <- st_read(con, query = "
+  SELECT * FROM dpa.zonas_saludmental
+")
+
+
+```
+
+las consultas sql estaran dentro del codigo completo en la carpeta "scripts" para una mejor visualizacion de las consultas, y para que el informe tenga una estructura mas ordenada.
+
+## Microsimulación con rakeR
+El procedimiento de microsimulación consistió en:
+Construcción de individuos sintéticos: Se usó la función buildInd del paquete rakeR para preparar la muestra CASEN con las variables categóricas requeridas (Edad, Escolaridad, Sexo).
+Creación de las restricciones censales: Para cada zona censal se generó una tabla de frecuencias agregadas a partir del Censo 2017 con las mismas variables categóricas, usando buildCons.
+Cálculo de pesos: A través de la función weight, se estimaron los pesos fraccionarios que permiten ajustar la muestra CASEN a las distribuciones observadas en el censo por zona censal.
+Integerización: Se aplicó la función integerise para transformar los pesos fraccionarios en una muestra entera de individuos simulados.
+Proyección de variables: Finalmente, se unió esta muestra simulada con las variables de salud seleccionadas (s22a_preg, s19a, etc.), estimando su proporción por zona censal mediante agregación.
+
+Almacenamiento y visualización
+Los resultados se almacenaron en una base de datos PostgreSQL con extensión PostGIS para su posterior análisis espacial. Se crearon tablas auxiliares con los porcentajes estimados de cada indicador a nivel de zona censal. Posteriormente, se exportaron los datos como objetos sf en R para su visualización mediante mapas coropléticos.
+
+Indicadores simulados
+Se realizaron microsimulaciones individuales para los siguientes indicadores binarios:
+Acceso a salud mental (salud_mental): 1 si recibió atención en el último año, 0 si no.
+Problemas para llegar al centro de salud (prob_llegar): 1 si reportó dificultad, 0 si no.
+Cada uno fue simulado de manera independiente, permitiendo luego su comparación espacial y análisis conjunto.
+
+Cabe mencionar, que las otras microsimulaciones, se hicieron con el mismo codigo, solo cambiando las variables a microsimular, esto con el objetivo de poder crear los mapas comparativos para un analisis mas profundo de la variable principal microsimulada, posteriormente, se creo un mapa bivariado en el cual se analizara el comportamiento en el territorio de las personas que presentan problemas para acudir a centros de salud, y aquellas que dentro de los ultimos 3 meses acudieron a salud mental.
+
+
+# RESULTADOS
+A continuacion se muestran los graficos resultados de la microsimulacion y sus respectivos analisis
+
+
+figura 1: Acceso reciente a salud mental (microsimulacion principal)
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# VISUALIZACIÓN
+ggplot(zonas_saludmental_sf) +
+  geom_sf(aes(fill = atencion_salud_mental), color = "black", size = 0.2) +
+  scale_fill_gradient(low = "lightgreen", high = "darkgreen", na.value = "grey90",
+                      name = "Atención salud mental (%)") +
+  theme_minimal() +
+  labs(title = "Acceso a atención de salud mental en los últimos 3 meses",
+       subtitle = "Porcentaje de personas con atención reciente por zona censal") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+```
+
+La Figura 1 muestra la distribución espacial del porcentaje estimado de personas que accedieron a atención de salud mental en los últimos tres meses, según la microsimulación realizada con datos CASEN 2022 y Censo 2017 a nivel de zona censal.
+
+Se observa una alta heterogeneidad territorial en el acceso reciente a servicios de salud mental dentro del área urbana de la Región Metropolitana. Las zonas con mayores porcentajes de atención (superiores al 10%) tienden a concentrarse en sectores del nororiente, como Providencia, Ñuñoa y sectores específicos de Santiago centro, así como también en algunas zonas del suroriente, como Puente Alto. Por el contrario, se identifican zonas con porcentajes cercanos a cero en comunas periféricas del poniente y sur, como Maipú, El Bosque y San Bernardo.
+
+Estas diferencias podrían estar relacionadas con múltiples factores, tales como la distribución geográfica de los centros de salud mental, el nivel educacional y socioeconómico de la población, la disponibilidad de transporte público y la percepción del estigma asociado a la atención psicológica o psiquiátrica.
+
+La simulación permite evidenciar brechas territoriales relevantes en el acceso a salud mental, las cuales podrían guiar políticas públicas focalizadas para mejorar la equidad en la prestación de estos servicios
+
+
+
+
+
+
+```{r warning=FALSE, include=FALSE}
+# ENTRADAS
+cons_censo_df <- readRDS(here::here("data", "cons_censo_df.rds"))
+
+casen_raw <- readRDS(here::here("data", "casen_rm.rds"))
+
+# VARIABLES BASE
+col_cons <- sort(setdiff(names(cons_censo_df), c("GEOCODIGO", "COMUNA")))
+age_levels  <- grep("^edad", col_cons, value = TRUE)
+esc_levels  <- grep("^esco", col_cons, value = TRUE)
+sexo_levels <- grep("^sexo_", col_cons, value = TRUE)
+
+vars_base <- c("estrato", "esc", "edad", "sexo", "e6a", "s22a_preg", "ind_hacina")
+
+casen <- casen_raw[, vars_base, drop = FALSE]
+rm(casen_raw)
+
+# PREPROCESAMIENTO
+casen$Comuna <- substr(as.character(casen$estrato), 1, 5)
+casen$estrato <- NULL
+
+casen$esc <- as.integer(unclass(casen$esc))
+casen$edad <- as.integer(unclass(casen$edad))
+casen$e6a <- as.numeric(unclass(casen$e6a))
+casen$sexo <- as.integer(unclass(casen$sexo))
+casen$s22a_preg <- as.integer(unclass(casen$s22a_preg))
+casen$ind_hacina <- as.integer(unclass(casen$ind_hacina))
+
+# Recode salud mental (para otros análisis)
+casen$salud_mental <- ifelse(casen$s22a_preg == 1, 1,
+                             ifelse(casen$s22a_preg == 2, 0, NA))
+
+# Recode hacinamiento: 1 si ind_hacina >= 2 (medio o alto), 0 en caso contrario
+casen$hacinamiento <- ifelse(casen$ind_hacina >= 2, 1, 0)
+
+# IMPUTACIÓN DE ESCOLARIDAD
+idx_na <- which(is.na(casen$esc))
+fit <- lm(esc ~ e6a, data = casen[-idx_na, ])
+pred <- predict(fit, newdata = casen[idx_na, , drop = FALSE])
+casen$esc[idx_na] <- as.integer(round(pmax(0, pmin(29, pred))))
+
+casen$ID <- as.character(seq_len(nrow(casen)))
+
+# RECODIFICACIÓN PARA RAKE
+casen$edad_cat <- cut(
+  casen$edad,
+  breaks = c(0, 30, 40, 50, 60, 70, 80, Inf),
+  labels = age_levels,
+  right = FALSE, include.lowest = TRUE
+)
+
+casen$esc_cat <- factor(
+  with(casen,
+       ifelse(esc == 0, esc_levels[1],
+              ifelse(esc <= 8, esc_levels[2],
+                     ifelse(esc <= 12, esc_levels[3], esc_levels[4])))),
+  levels = esc_levels
+)
+
+casen$sexo_cat <- factor(
+  ifelse(casen$sexo == 2, sexo_levels[1],
+         ifelse(casen$sexo == 1, sexo_levels[2], NA)),
+  levels = sexo_levels
+)
+
+# MICROSIMULACIÓN
+cons_censo_comunas <- split(cons_censo_df, cons_censo_df$COMUNA)
+inds_list <- split(casen, casen$Comuna)
+
+sim_list <- lapply(names(cons_censo_comunas), function(zona) {
+  cons_i <- cons_censo_comunas[[zona]]
+  col_order <- sort(setdiff(names(cons_i), c("COMUNA", "GEOCODIGO")))
+  cons_i <- cons_i[, c("GEOCODIGO", col_order), drop = FALSE]
+  
+  tmp <- inds_list[[zona]]
+  inds_i <- tmp[, c("ID", "edad_cat", "esc_cat", "sexo_cat"), drop = FALSE]
+  names(inds_i) <- c("ID", "Edad", "Escolaridad", "Sexo")
+  
+  w_frac <- weight(cons = cons_i, inds = inds_i,
+                   vars = c("Edad", "Escolaridad", "Sexo"))
+  sim_i <- integerise(weights = w_frac, inds = inds_i, seed = 123)
+  
+  merge(sim_i, tmp[, c("ID", "hacinamiento")], by = "ID", all.x = TRUE)
+})
+
+sim_df <- data.table::rbindlist(sim_list, idcol = "COMUNA")
+
+# CÁLCULO DE % EN HACINAMIENTO POR ZONA
+zonas_hacinamiento <- aggregate(
+  hacinamiento ~ zone,
+  data = sim_df,
+  FUN = function(x) {
+    total <- sum(!is.na(x))
+    con_hacinamiento <- sum(x == 1, na.rm = TRUE)
+    round(100 * con_hacinamiento / total, 2)
+  }
+)
+
+names(zonas_hacinamiento) <- c("geocodigo", "hacinamiento_pct")
+
+# EXPORTACIÓN A POSTGRESQL
+con <- dbConnect(
+  Postgres(),
+  dbname = "censo_rm_2017",
+  host = "localhost",
+  port = 5432,
+  user = "postgres",
+  password = "postgres"
+)
+
+dbWriteTable(
+  conn = con,
+  name = Id(schema = "dpa", table = "tmp_hacinamiento_rm"),
+  value = zonas_hacinamiento,
+  overwrite = TRUE,
+  row.names = FALSE
+)
+
+dbExecute(con, "CREATE INDEX ON dpa.tmp_hacinamiento_rm(geocodigo)")
+dbExecute(con, "ANALYZE dpa.tmp_hacinamiento_rm")
+dbExecute(con, "DROP TABLE IF EXISTS dpa.zonas_hacinamiento")
+
+dbExecute(con, "
+  CREATE TABLE dpa.zonas_hacinamiento AS
+  SELECT
+    z.*,
+    t.hacinamiento_pct
+  FROM dpa.zonas_censales_rm AS z
+  LEFT JOIN dpa.tmp_hacinamiento_rm AS t
+    ON z.geocodigo::text = t.geocodigo
+  WHERE urbano = 1 AND (nom_provin = 'SANTIAGO' OR nom_comuna = 'SAN BERNARDO' OR nom_comuna = 'PUENTE ALTO')
+")
+
+zonas_hacinamiento_sf <- st_read(con, query = "
+  SELECT * FROM dpa.zonas_hacinamiento
+")
+
+# VISUALIZACIÓN
+ggplot(zonas_hacinamiento_sf) +
+  geom_sf(aes(fill = hacinamiento_pct), color = "black", size = 0.2) +
+  scale_fill_gradient(low = "lightcoral", high = "darkred", na.value = "grey90",
+                      name = "Hacinamiento (%)") +
+  theme_minimal() +
+  labs(title = "Porcentaje de personas en situación de hacinamiento",
+       subtitle = "Zonas censales del Gran Santiago") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank())
+```
+
+
+
+
+## mapa 2: porcentaje de personas con problemas de acceso a salud por zona censal
+Este mapa utiliza una escala de colores rojos para representar el porcentaje de personas en situación de hacinamiento en cada zona censal. Los tonos más oscuros indican un mayor porcentaje de hacinamiento, mientras que los tonos más claros muestran un menor porcentaje. La leyenda indica un rango de 0% a 30% o más.
+
+
+
+```{r echo=FALSE, warning=FALSE}
+# VISUALIZACIÓN
+ggplot(zonas_hacinamiento_sf) +
+  geom_sf(aes(fill = hacinamiento_pct), color = "black", size = 0.2) +
+  scale_fill_gradient(low = "lightcoral", high = "darkred", na.value = "grey90",
+                      name = "Hacinamiento (%)") +
+  theme_minimal() +
+  labs(title = "Porcentaje de personas en situación de hacinamiento",
+       subtitle = "Zonas censales del Gran Santiago") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank())
+```
+
+
+Observaciones Clave:
+
+Zonas con mayor hacinamiento: Se observa claramente que las zonas censales con mayor porcentaje de hacinamiento (tonos más oscuros de rojo) se concentran principalmente en la parte central de Santiago, extendiéndose hacia el norte y algunas áreas del poniente. Esto podría corresponder a comunas con alta densidad poblacional y/o condiciones socioeconómicas más vulnerables.
+Zonas con menor hacinamiento: Las zonas con menor porcentaje de hacinamiento (tonos más claros) se encuentran en la periferia de la ciudad, especialmente en el sur y algunas áreas del oriente.
+Patrón geográfico: Hay un patrón de gradiente, donde el hacinamiento tiende a ser más pronunciado en las áreas más consolidadas y centrales de la ciudad, disminuyendo hacia las zonas más nuevas o de menor densidad en la periferia.
+Posibles interpretaciones y relación con tu microsimulación:
+
+Salud mental y hacinamiento: Existe una reconocida correlación entre el hacinamiento y diversos problemas de salud mental, como estrés, ansiedad, depresión y conflictos intrafamiliares. Un ambiente de hacinamiento puede limitar la privacidad, el espacio personal y el acceso a condiciones de vida dignas, lo que impacta negativamente el bienestar psicológico.
+Vulnerabilidad social: Las zonas con alto hacinamiento a menudo coinciden con áreas de mayor vulnerabilidad socioeconómica. Esto es importante porque las personas en estas situaciones pueden tener un acceso más limitado a servicios de salud mental o enfrentar barreras adicionales para buscar ayuda
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# ENTRADAS
+cons_censo_df <- readRDS(here::here("data", "cons_censo_df.rds"))
+
+casen_raw <- readRDS(here::here("data", "casen_rm.rds"))
+
+# VARIABLES BASE
+col_cons <- sort(setdiff(names(cons_censo_df), c("GEOCODIGO", "COMUNA")))
+age_levels  <- grep("^edad", col_cons, value = TRUE)
+esc_levels  <- grep("^esco", col_cons, value = TRUE)
+sexo_levels <- grep("^sexo_", col_cons, value = TRUE)
+
+vars_base <- c("estrato", "esc", "edad", "sexo", "e6a", "s19a")
+
+casen <- casen_raw[, vars_base, drop = FALSE]
+rm(casen_raw)
+
+# PREPROCESAMIENTO
+casen$Comuna <- substr(as.character(casen$estrato), 1, 5)
+casen$estrato <- NULL
+
+casen$esc <- as.integer(unclass(casen$esc))
+casen$edad <- as.integer(unclass(casen$edad))
+casen$e6a <- as.numeric(unclass(casen$e6a))
+casen$sexo <- as.integer(unclass(casen$sexo))
+casen$s19a <- as.integer(unclass(casen$s19a))
+
+# Recode s19a: 1 = tuvo problemas para llegar, 0 = no
+casen$problemas_acceso <- ifelse(casen$s19a == 1, 1,
+                                 ifelse(casen$s19a == 2, 0, NA))
+
+# IMPUTACIÓN DE ESCOLARIDAD
+idx_na <- which(is.na(casen$esc))
+fit <- lm(esc ~ e6a, data = casen[-idx_na, ])
+pred <- predict(fit, newdata = casen[idx_na, , drop = FALSE])
+casen$esc[idx_na] <- as.integer(round(pmax(0, pmin(29, pred))))
+
+casen$ID <- as.character(seq_len(nrow(casen)))
+
+# RECODIFICACIÓN PARA RAKE
+casen$edad_cat <- cut(
+  casen$edad,
+  breaks = c(0, 30, 40, 50, 60, 70, 80, Inf),
+  labels = age_levels,
+  right = FALSE, include.lowest = TRUE
+)
+
+casen$esc_cat <- factor(
+  with(casen,
+       ifelse(esc == 0, esc_levels[1],
+              ifelse(esc <= 8, esc_levels[2],
+                     ifelse(esc <= 12, esc_levels[3], esc_levels[4])))),
+  levels = esc_levels
+)
+
+casen$sexo_cat <- factor(
+  ifelse(casen$sexo == 2, sexo_levels[1],
+         ifelse(casen$sexo == 1, sexo_levels[2], NA)),
+  levels = sexo_levels
+)
+
+# MICROSIMULACIÓN
+cons_censo_comunas <- split(cons_censo_df, cons_censo_df$COMUNA)
+inds_list <- split(casen, casen$Comuna)
+
+sim_list <- lapply(names(cons_censo_comunas), function(zona) {
+  cons_i <- cons_censo_comunas[[zona]]
+  col_order <- sort(setdiff(names(cons_i), c("COMUNA", "GEOCODIGO")))
+  cons_i <- cons_i[, c("GEOCODIGO", col_order), drop = FALSE]
+  
+  tmp <- inds_list[[zona]]
+  inds_i <- tmp[, c("ID", "edad_cat", "esc_cat", "sexo_cat"), drop = FALSE]
+  names(inds_i) <- c("ID", "Edad", "Escolaridad", "Sexo")
+  
+  w_frac <- weight(cons = cons_i, inds = inds_i,
+                   vars = c("Edad", "Escolaridad", "Sexo"))
+  sim_i <- integerise(weights = w_frac, inds = inds_i, seed = 123)
+  merge(sim_i, tmp[, c("ID", "problemas_acceso")], by = "ID", all.x = TRUE)
+})
+
+sim_df <- data.table::rbindlist(sim_list, idcol = "COMUNA")
+
+# CÁLCULO DE % QUE TUVO PROBLEMAS PARA LLEGAR A CONSULTA
+zonas_acceso <- aggregate(
+  problemas_acceso ~ zone,
+  data = sim_df,
+  FUN = function(x) {
+    total <- sum(!is.na(x))
+    con_problemas <- sum(x == 1, na.rm = TRUE)
+    round(100 * con_problemas / total, 2)
+  }
+)
+
+names(zonas_acceso) <- c("geocodigo", "problemas_para_llegar")
+
+# EXPORTACIÓN A POSTGRESQL
+con <- dbConnect(
+  Postgres(),
+  dbname = "censo_rm_2017",
+  host = "localhost",
+  port = 5432,
+  user = "postgres",
+  password = "postgres"
+)
+
+dbWriteTable(
+  conn = con,
+  name = Id(schema = "dpa", table = "tmp_problemas_acceso_rm"),
+  value = zonas_acceso,
+  overwrite = TRUE,
+  row.names = FALSE
+)
+
+dbExecute(con, "CREATE INDEX ON dpa.tmp_problemas_acceso_rm(geocodigo)")
+dbExecute(con, "ANALYZE dpa.tmp_problemas_acceso_rm")
+dbExecute(con, "DROP TABLE IF EXISTS dpa.zonas_problemas_acceso")
+
+dbExecute(con, "
+  CREATE TABLE dpa.zonas_problemas_acceso AS
+  SELECT
+    z.*,
+    t.problemas_para_llegar
+  FROM dpa.zonas_censales_rm AS z
+  LEFT JOIN dpa.tmp_problemas_acceso_rm AS t
+    ON z.geocodigo::text = t.geocodigo
+  WHERE urbano = 1 AND (nom_provin = 'SANTIAGO' OR nom_comuna = 'SAN BERNARDO' OR nom_comuna = 'PUENTE ALTO')
+")
+
+zonas_problemas_acceso_sf <- st_read(con, query = "
+  SELECT * FROM dpa.zonas_problemas_acceso
+")
+
+# VISUALIZACIÓN
+ggplot(zonas_problemas_acceso_sf) +
+  geom_sf(aes(fill = problemas_para_llegar), color = "black", size = 0.2) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", na.value = "grey90",
+                      name = "Problemas para llegar (%)") +
+  theme_minimal() +
+  labs(title = "Problemas para acceder a atención médica",
+       subtitle = "Porcentaje de personas con dificultades de acceso por zona censal") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank())
+```
+
+
+## mapa 3: porcentaje de personas con problemas de acceso a salud por zona censal
+
+```{r echo=FALSE, warning=FALSE}
+# VISUALIZACIÓN
+ggplot(zonas_problemas_acceso_sf) +
+  geom_sf(aes(fill = problemas_para_llegar), color = "black", size = 0.2) +
+  scale_fill_gradient(low = "lightblue", high = "darkblue", na.value = "grey90",
+                      name = "Problemas para llegar (%)") +
+  theme_minimal() +
+  labs(title = "Problemas para acceder a atención médica",
+       subtitle = "Porcentaje de personas con dificultades de acceso por zona censal") +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank())
+```
+
+Este mapa utiliza una escala de colores azules para representar el porcentaje de personas que reportan dificultades para acceder a atención médica en cada zona censal. Los tonos más oscuros de azul indican un mayor porcentaje de dificultades, mientras que los tonos más claros muestran un menor porcentaje. La leyenda muestra un rango de 0% a 30% o más.
+
+Observaciones Clave:
+
+Zonas con mayores dificultades de acceso: A diferencia del mapa de hacinamiento, las zonas con mayores problemas de acceso a atención médica (tonos más oscuros de azul) parecen concentrarse más en el sur de Santiago, con algunas áreas dispersas en el poniente y el oriente. Hay un núcleo muy oscuro en la zona sur central.
+Zonas con menores dificultades de acceso: Las zonas con menores dificultades de acceso (tonos más claros) se encuentran predominantemente en el centro y norte de Santiago, así como en algunas áreas del poniente y oriente.
+Patrón geográfico: El patrón aquí es menos centralizado que el del hacinamiento y muestra una mayor concentración de problemas de acceso en la periferia sur de la ciudad, lo que podría estar relacionado con la distancia a centros de salud, la disponibilidad de transporte público o la densidad de la infraestructura sanitaria.
+Posibles interpretaciones y relación con tu microsimulación:
+
+Barreras de acceso a la salud mental: Aunque el mapa habla de "atención médica" en general, es muy probable que estas dificultades se extiendan a la atención de salud mental. Las barreras pueden incluir la lejanía de los centros de salud, la falta de especialistas, los costos asociados (transporte, copagos), la falta de información o los largos tiempos de espera.
+Disparidad geográfica en el acceso: Este mapa resalta una disparidad geográfica importante en el acceso a la salud en Santiago. Las zonas más alejadas o con menor infraestructura de transporte podrían ser las más afectadas.
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Preparar datos para bivariado
+df_problemas_sin_geom <- zonas_problemas_acceso_sf %>%
+  st_set_geometry(NULL) %>%
+  select(geocodigo, problemas_para_llegar)
+
+bivariado_sf <- zonas_saludmental_sf %>%
+  left_join(df_problemas_sin_geom, by = "geocodigo") %>%
+  filter(!is.na(atencion_salud_mental), !is.na(problemas_para_llegar))
+
+# Crear variable bivariada con paleta aceptada (oscura)
+bi_data <- bi_class(bivariado_sf,
+                    x = atencion_salud_mental,
+                    y = problemas_para_llegar,
+                    style = "quantile", dim = 3)
+
+# Crear mapa bivariado
+map_bi <- ggplot() +
+  geom_sf(data = bi_data, aes(fill = bi_class), color = "white", size = 0.1) +
+  bi_scale_fill(pal = "DkBlue", dim = 3, guide = FALSE) +  # <- Paleta válida y oscura
+  labs(title = "Mapa bivariado: Atención en salud mental vs Problemas de acceso",
+       subtitle = "Región Metropolitana",
+       caption = "Fuente: Microsimulación con CASEN 2022 y CENSO 2017") +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank())
+
+# Crear leyenda
+legend_bi <- bi_legend(pal = "DkBlue", dim = 3,
+                       xlab = "Mayor acceso a salud mental →",
+                       ylab = "Mayor dificultad para llegar →",
+                       size = 8)
+
+# Combinar mapa y leyenda
+final_plot <- ggdraw() +
+  draw_plot(map_bi, 0, 0, 1, 1) +
+  draw_plot(legend_bi, 0.7, 0.1, 0.25, 0.25)
+
+# Mostrar resultado
+print(final_plot)
+
+```
+
+## mapa bivariado Porcentaje de personas con atención reciente en salud mental y Porcentaje de personas que declararon dificultades para llegar al establecimiento de salud 
+
+```{r echo=FALSE, warning=FALSE}
+# Mostrar resultado
+print(final_plot)
+```
+
+el mapa 4 presenta un mapa bivariado que cruza el acceso reciente a atención de salud mental con la proporción de personas que declararon haber tenido dificultades para llegar al centro de salud (por distancia, transporte u otros factores). Esta visualización permite identificar patrones territoriales complejos que no son evidentes en los mapas univariados.
+
+Se observan zonas del nororiente (Providencia, Ñuñoa, Las Condes) y del centro de la ciudad que presentan altos niveles de atención en salud mental y bajas dificultades de acceso (colores celestes claros), lo que refleja una favorable accesibilidad tanto física como funcional a estos servicios.
+
+En contraste, zonas periféricas del sur y del poniente (como El Bosque, La Pintana, San Bernardo y algunas zonas de Maipú) exhiben bajos niveles de atención en salud mental y altos niveles de dificultad para llegar (colores fucsia), lo cual evidencia una doble desventaja territorial en el acceso a la atención psicológica o psiquiátrica.
+
+También es interesante notar zonas con alta dificultad para llegar pero con niveles medios de atención, como partes de Puente Alto o La Florida. Estas podrían indicar que, a pesar de las barreras geográficas, la demanda por salud mental persiste, lo que puede reflejar estrategias adaptativas de la población (como viajes largos o uso de servicios privados).
+
+En conjunto, este análisis espacial bivariado permite detectar zonas críticas para la intervención pública, especialmente aquellas donde se concentran ambas desventajas. Estas áreas podrían beneficiarse de nuevas estrategias de atención descentralizada, programas móviles o inversión en infraestructura de transporte hacia centros de salud mental.
+
+
+
+
+
+
+# Conclusión
+El presente trabajo permitió realizar una estimación espacialmente desagregada del acceso a atención de salud mental en la Región Metropolitana, utilizando microsimulación a partir de la Encuesta CASEN 2022 y el Censo 2017. Mediante la aplicación de la librería rakeR en R, fue posible distribuir características individuales de la CASEN a nivel de zona censal, generando un insumo valioso para el análisis territorial y la planificación local en salud pública.
+
+Los resultados revelan una desigual distribución del acceso a atención en salud mental, con mayores porcentajes de atención en comunas céntricas y del oriente (como Ñuñoa, Santiago y Las Condes), y menores en comunas del sur y poniente (como La Pintana, El Bosque o San Bernardo). Este patrón reproduce históricas desigualdades socioespaciales, y confirma que la localización de los servicios y las condiciones de movilidad urbana influyen directamente en el acceso efectivo a la salud mental.
+
+El análisis bivariado permitió profundizar en esta lectura, revelando territorios donde se cruzan bajos niveles de atención con altas dificultades para acceder físicamente a los centros de salud, identificando así zonas con doble exclusión territorial. Esta evidencia es clave para orientar políticas públicas desde una lógica de equidad espacial, territorializando la toma de decisiones y priorizando intervenciones en zonas críticas.
+
+Desde una perspectiva de la Ingeniería Civil en Geografía, este estudio demuestra el potencial del cruce entre estadística social, cartografía temática y técnicas de simulación espacial, para apoyar diagnósticos más precisos y orientados a la acción. Se destaca la utilidad de herramientas reproducibles como R y la importancia de considerar unidades territoriales menores (zonas censales) en lugar de escalas comunales, que muchas veces enmascaran la heterogeneidad interna de los territorios.
+
+Finalmente, este trabajo reafirma la necesidad de seguir integrando enfoques geográficos en los estudios de salud pública, fortaleciendo los vínculos entre la planificación territorial y la justicia sanitaria, especialmente en un contexto donde los problemas de salud mental se han intensificado y requieren una respuesta con enfoque territorial, inclusivo y basado en evidencia.
+
+
+
+
+
+
+
+
+
+
+
