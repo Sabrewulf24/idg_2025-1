@@ -27,7 +27,7 @@ La microsimulación permite representar con mayor fidelidad esta heterogeneidad,
 #Justificación de la variable principal
 La salud mental se ha convertido en una dimensión crítica de la salud pública en Chile, especialmente tras la pandemia de COVID-19. Diversos estudios e informes han evidenciado un aumento en la prevalencia de trastornos como ansiedad, depresión y estrés postraumático, con un impacto significativo en la calidad de vida y el funcionamiento cotidiano de la población.
 
-En este contexto, contar con información territorial detallada sobre el acceso reciente a atención en salud mental resulta fundamental para diseñar políticas públicas eficientes y focalizadas. Sin embargo, la Encuesta CASEN 2022 sólo entrega esta información a nivel comunal, lo que limita el análisis de las diferencias intraurbanas.
+En este contexto, contar con información territorial detallada sobre el acceso reciente a atención en salud mental resulta fundamental para diseñar políticas públicas eficientes y focalizadas. Sin embargo, la Encuesta CASEN 2022 sólo entrega esta información a nivel comunal, lo que limita el análisis de las diferencias intraurbasnas.
 
 Por ello, este trabajo utiliza la microsimulación espacial para estimar, a nivel de zona censal, el porcentaje de personas que se atendieron en establecimientos de salud mental (psicólogo o psiquiatra) durante los últimos tres meses. Esta variable, derivada de s26c, se considera un indicador clave del uso efectivo de servicios de salud mental, y su distribución territorial permite identificar áreas donde existen mayores niveles de atención y, por lo tanto, posiblemente mayor acceso o necesidad detectada.
 

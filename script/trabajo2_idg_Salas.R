@@ -516,4 +516,4 @@ final_plot <- ggdraw() +
   draw_plot(legend_bi, 0.7, 0.1, 0.25, 0.25)
 
 # Mostrar resultado
-print(final_plot)
+print(final_plot) 
