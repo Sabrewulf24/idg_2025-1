@@ -18,6 +18,8 @@ library(sf)
 library(ggplot2)
 library(cowplot)
 library(tibble)
+library(dplyr)
+library(tidyr)
 
 
 # =============================================================================
@@ -97,7 +99,7 @@ ggpairs(
 # 3) MAPA DE CLUSTERS
 # =============================================================================
 
-# Leer geometría de zonas censales
+# para leer geometría de zonas censales
 sql_geom = "
 SELECT geocodigo::double precision, geom
 FROM dpa.zonas_censales_rm
@@ -119,7 +121,7 @@ sf_comunas_santiago <- st_read(con, query = sql_comunas)
 # Bounding box
 bbox <- st_bbox(sf_mapa)
 
-# Crear mapa de clusters
+# se Crea mapa de clusters
 ggplot() +
   geom_sf(data = sf_mapa, aes(fill = cluster), color = NA) +
   geom_sf(data = sf_comunas_santiago, fill = NA, color = "black", size = 0.3) +
@@ -161,7 +163,7 @@ ggplot(sf_mapa) +
 
 
 
-# Leer comunas si no lo habías hecho
+# Se procede a leer las comunas
 sql_comunas = "
 SELECT cut, nom_comuna, geom
 FROM dpa.comunas_rm_shp
@@ -204,4 +206,6 @@ ggplot(sf_comunas_shannon) +
     subtitle = "Índice de diversidad (mayor = más heterogénea)"
   ) +
   theme_minimal()
+
+
 

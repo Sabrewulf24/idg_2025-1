@@ -1,0 +1,502 @@
+---
+title: "trabajo3_idg_salas"
+auuthor: "Mathias Salas"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+## 1. Introducción
+
+En el contexto urbano contemporáneo, las desigualdades territoriales en el acceso a servicios básicos, como la salud, representan un desafío persistente para la planificación pública y la equidad social. El Gran Santiago, caracterizado por su fuerte segmentación socioespacial, ofrece un escenario especialmente relevante para el análisis de estas brechas, que no solo se expresan entre comunas, sino también al interior de ellas.
+
+En particular, el acceso a la salud mental ha adquirido creciente relevancia en los últimos años, tanto por su impacto en la calidad de vida como por las barreras estructurales y simbólicas que enfrenta la población para acceder a este tipo de atención. Estas barreras no se distribuyen de forma homogénea en el territorio, sino que están mediadas por factores socioeconómicos, culturales y geográficos que varían significativamente entre zonas.
+
+Este trabajo tiene por objetivo identificar patrones espaciales de desigualdad territorial en torno a tres dimensiones claves relacionadas con la salud y el bienestar: el **nivel de atención en salud mental**, las **dificultades para acceder a la atención**, y el **ingreso per cápita estimado**. Para ello, se aplican técnicas de microsimulación sobre la base de datos de la Encuesta CASEN 2022, en conjunto con los perfiles poblacionales del Censo 2017, a fin de estimar indicadores a escala de zona censal.
+
+A diferencia de enfoques tradicionales que analizan variables de forma aislada o a escalas agregadas (como la comuna), este trabajo propone un abordaje multidimensional y a escala fina, utilizando el algoritmo **K-means** para agrupar zonas censales con características similares. Esto permite construir una tipología territorial más precisa, que revela configuraciones espaciales complejas y no evidentes a simple vista.
+
+Además, se incorpora el **índice de Shannon** como herramienta para evaluar la heterogeneidad interna de los clusters a nivel comunal, entregando información clave sobre la fragmentación y diversidad territorial dentro de cada unidad administrativa.
+
+En suma, este trabajo busca contribuir al entendimiento de las desigualdades territoriales desde un enfoque geoespacial e integrado, y entregar herramientas analíticas que puedan ser utilizadas para el diseño de políticas públicas más focalizadas, justas y basadas en evidencia territorial.
+
+
+
+## 2. Objetivos
+
+## 2.1 **Objetivo general:**
+
+- Aplicar un análisis de agrupamiento espacial (K-means) a zonas censales del Gran Santiago, utilizando variables microsimuladas que reflejan la situación de las personas en cuanto a atención en salud mental, acceso a la atención e ingreso per cápita.
+
+## 2.2 **Objetivos específicos:**
+
+1. Construir una matriz de indicadores por zona censal a partir de datos microsimulados previamente procesados.
+2. Determinar el número óptimo de clusters usando el método del codo.
+3. Aplicar el algoritmo K-means sobre las variables estandarizadas y clasificar las zonas censales.
+4. Visualizar espacialmente los clusters resultantes y comparar con mapas individuales por variable.
+5. Evaluar la heterogeneidad interna de los clusters a nivel comunal mediante el índice de Shannon.
+6. Interpretar los resultados obtenidos y proponer una clasificación territorial a partir de los grupos identificados.
+
+
+Como primer paso, se llama a todas las librerias necesarias para el desarrollo del codigo
+
+```{r message=FALSE, warning=FALSE}
+library(vegan)
+library(GGally)
+library(plotly)
+library(factoextra)
+library(ggfortify)
+library(DBI)
+library(RPostgres)
+library(sf)
+library(ggplot2)
+library(cowplot)
+library(tibble)
+library(dplyr)
+library(tidyr)
+
+```
+
+
+Posteriormente se hace la conexion con la base de datos del censo 2017, de donde se realizan las consultas
+sql para poder usar los datos microsimulados desde postgres
+en este caso, como las microsimulaciones ya fueron hechas, las consultas solo llaman a los
+resultados guardados y exportados. Esto con el fin de evitar reprocesamiento, ya que la microsimulación es un proceso pesado y lento, especialmente con CASEN. Ya se hizo una vez correctamente, y no tiene sentido volver a correrla si los datos no cambiaron, ademas al ya estar guardados los datos, se pueden llamar en cualquier momento para trabajos futuros, como en el caso de este trabajo 3.
+
+```{r message=FALSE, warning=FALSE}
+# =============================================================================
+# 2) CONEXIÓN
+# =============================================================================
+con <- dbConnect(
+  Postgres(),
+  dbname = "censo_rm_2017",
+  host = "localhost",
+  port = 5432,
+  user = "postgres",
+  password = "postgres"
+)
+
+
+# =============================================================================
+# 1) CARGAR DATOS MICROSIMULADOS DESDE POSTGRES
+# =============================================================================
+
+# Atención salud mental
+df_salud <- dbGetQuery(con, "
+  SELECT geocodigo::double precision, atencion_salud_mental
+  FROM dpa.tmp_saludmental_rm
+")
+
+# Problemas para llegar a consulta
+df_acceso <- dbGetQuery(con, "
+  SELECT geocodigo::double precision, problemas_para_llegar
+  FROM dpa.tmp_problemas_acceso_rm
+")
+
+# Ingreso mediano
+df_ingreso <- dbGetQuery(con, "
+  SELECT geocodigo::double precision, mediana_ingreso
+  FROM dpa.tmp_ingreso_rm
+")
+
+# Unir las tres variables
+df_indicadores <- Reduce(function(x, y) merge(x, y, by = "geocodigo", all = TRUE),
+                         list(df_salud, df_acceso, df_ingreso))
+
+# Eliminar filas con NA
+df_indicadores <- na.omit(df_indicadores)
+
+```
+
+
+## 3. Metodología
+
+### 3.1 Fuente de datos
+
+Este análisis se construye a partir de dos fuentes de información principales:
+
+- **Censo 2017 (INE)**: se utilizaron los datos agregados a nivel de zona censal, disponibles en formato `constraints` para el uso con `rakeR`. Estas tablas permiten conocer la composición por edad, escolaridad y sexo de la población de cada zona.
+  
+- **Encuesta CASEN 2022 (Ministerio de Desarrollo Social y Familia)**: se empleó la versión individual de la encuesta, correspondiente a la Región Metropolitana. A partir de esta base, se extrajeron variables clave relacionadas con atención en salud mental (`s22a_preg`), problemas para llegar a la atención (`s19a`) e ingreso per cápita (`ypc`).
+
+### 3.2 Variables utilizadas
+
+Se seleccionaron tres variables de interés que fueron microsimuladas y luego agregadas a nivel de zona censal:
+
+- **Atención en salud mental**: porcentaje de personas que reportaron haber recibido atención en salud mental en los últimos 3 meses (`s22a_preg = 1`).
+- **Problemas para llegar a la atención**: porcentaje de personas que declararon haber tenido dificultades para llegar al centro de atención en salud (`s19a = 1`).
+- **Ingreso per cápita**: ingreso mediano estimado por zona, calculado a partir del campo `ypc`.
+
+Estas variables fueron escogidas por su relevancia para el análisis de desigualdades territoriales, en particular vinculadas a la salud y condiciones socioeconómicas.
+
+### 3.3 Microsimulación con `rakeR`
+
+Para estimar los indicadores mencionados a nivel de zona censal, se utilizó el paquete `rakeR`, siguiendo los siguientes pasos:
+
+1. **Preprocesamiento de datos**: se imputaron valores faltantes de escolaridad (variable `esc`) mediante un modelo de regresión lineal con `e6a` como predictor.
+2. **Clasificación de variables**: se agruparon las variables `edad`, `esc` y `sexo` en categorías consistentes con las presentes en los `constraints` del Censo 2017.
+3. **Aplicación del algoritmo de expansión (rake + integerise)**: se ponderaron los casos de la CASEN en función de su similitud con la estructura poblacional de cada zona, replicando los individuos para alcanzar la distribución observada en el Censo.
+4. **Agregación**: se calculó el porcentaje de personas con atención, con dificultades de acceso, y la mediana del ingreso en cada zona.
+
+Cada una de estas variables fue exportada a PostgreSQL y vinculada espacialmente con la capa de zonas censales urbanas de la Provincia de Santiago, incluyendo Puente Alto y San Bernardo.
+
+### 3.4 Análisis de clusters con K-means
+
+Una vez obtenidas las variables de interés, se aplicó el algoritmo de agrupamiento K-means:
+
+1. **Escalamiento de variables**: para evitar que las diferencias de magnitud entre variables afectaran el clustering, las tres variables fueron normalizadas mediante `scale()`.
+2. **Determinación del número óptimo de clusters**: se utilizó el método del codo (`fviz_nbclust`) para analizar la suma de cuadrados intra-cluster en función del número de grupos. El punto de inflexión se identificó en **K = 3**.
+3. **Ejecutar K-means**: se aplicó el algoritmo con K = 3, y se asignó a cada zona censal un valor de cluster.
+4. **Visualización**: se construyeron gráficos de dispersión (`ggpairs`) y mapas temáticos para interpretar espacialmente los resultados del agrupamiento.
+
+### 3.5 Evaluación de heterogeneidad con índice de Shannon
+
+Para analizar el grado de mezcla interna de clusters en cada comuna, se utilizó el **índice de Shannon**, una métrica comúnmente usada en ecología y geografía para evaluar diversidad.
+
+1. Se calcularon las proporciones de zonas de cada cluster dentro de cada comuna.
+2. Se aplicó la función `diversity()` del paquete `vegan`.
+3. Se construyó un mapa comunal que refleja el nivel de heterogeneidad interna: comunas con índice alto tienen presencia balanceada de varios clusters, mientras que comunas con valores bajos están dominadas por un único perfil territorial.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# =============================================================================
+# 2) ESCALAR VARIABLES Y HACER K-MEANS
+# =============================================================================
+
+# Selección y escalado
+vars_clusters <- df_indicadores[, c("atencion_salud_mental", "problemas_para_llegar", "mediana_ingreso")]
+vars_scaled <- scale(vars_clusters)
+
+# Determinar número óptimo de clusters
+fviz_nbclust(vars_scaled, kmeans, method = "wss") +
+  labs(title = "Método del Codo", x = "Número de clusters", y = "WSS")
+
+# Aplicar K-means
+set.seed(123)
+km <- kmeans(vars_scaled, centers = 3, nstart = 25)
+
+# Asignar cluster
+df_indicadores$cluster <- as.factor(km$cluster)
+
+```
+
+ 
+## Resultados y análisis espacial
+
+### 4.1 Determinación del número de clusters
+
+Para identificar la cantidad óptima de clusters, se utilizó el método del codo (WSS – Within Cluster Sum of Squares), el cual evalúa la varianza intra-cluster para diferentes valores de K. Se observó una disminución significativa de la varianza hasta **K = 3**, punto donde la pendiente se estabiliza, lo que indica que tres grupos capturan de forma eficiente la variabilidad de los datos.
+
+Esta decisión se valida además en los resultados obtenidos a nivel espacial y relacional, donde se observan patrones territoriales coherentes.
+
+---
+
+### 4.2 Tipología de clusters
+
+A partir de la aplicación de K-means con K = 3, se clasificaron las zonas censales del Gran Santiago en tres grupos diferenciados según las variables:
+
+- **Atención en salud mental**
+- **Problemas para llegar a la atención**
+- **Ingreso per cápita mediano**
+ 
+ 
+![Gráfico de clusters](C:/Users/Mathias/Documents/idg_2025-1/Rplot.png)
+
+### 4.3 Mapa relaciones entre variables
+
+
+```{r echo=FALSE, warning=FALSE}
+# Gráfico de relaciones entre variables
+df_plot <- df_indicadores[, c("atencion_salud_mental", "problemas_para_llegar", "mediana_ingreso", "cluster")]
+
+ggpairs(
+  df_plot,
+  columns = 1:3,
+  mapping = aes(color = cluster),
+  upper = list(continuous = "points"),
+  lower = list(continuous = "points"),
+  diag = list(continuous = "densityDiag")
+)
+```
+
+El gráfico de pares (`ggpairs`) permite observar la distribución y la relación entre las tres variables utilizadas en el clustering: atención en salud mental, problemas de acceso e ingreso per cápita, coloreadas por cluster.
+
+En la **diagonal**, se visualiza la distribución de cada variable por separado. En general, **ninguna de las variables sigue una distribución perfectamente normal**, pero muestran patrones interesantes:
+
+- **Ingreso per cápita**: es la variable más claramente diferenciadora. Tiene una distribución fuertemente **asimétrica hacia la izquierda**, con la mayoría de las zonas en valores bajos (verde) y un grupo más pequeño con ingresos muy altos (Cluster 1, en verde). Este patrón sugiere una **alta desigualdad territorial del ingreso**, concentrado en pocas zonas del sector oriente.
+
+- **Atención en salud mental**: muestra una **distribución más dispersa**, aunque se observa que los valores más altos corresponden al Cluster 1 (zonas de mayor ingreso), mientras que los valores más bajos predominan en el Cluster 2 (zonas vulnerables). Esto indica una posible correlación positiva entre ingreso y atención.
+
+- **Problemas de acceso**: presenta una **distribución algo bimodal**, donde el Cluster 2 (naranjo) concentra los valores más altos, indicando mayores barreras de acceso en sectores vulnerables, mientras que los Clusters 1 y 3 muestran valores más bajos.
+
+En los **gráficos de dispersión (paneles inferiores)**, se aprecia:
+
+- Una **relación negativa** entre ingreso y problemas de acceso: a mayor ingreso, menores dificultades para llegar a la atención.
+- Una **relación positiva** entre ingreso y atención en salud mental: las zonas con mayores recursos acceden más.
+- Una débil correlación entre atención y problemas de acceso, probablemente explicada por el cruce de zonas intermedias (Cluster 3).
+
+En conjunto, estos patrones confirman que el **clustering está bien segmentado**, y que **el ingreso actúa como la variable más estructurante del agrupamiento**, seguida por la atención y el acceso como elementos que definen el tipo de exclusión o privilegio territorial.
+
+
+
+### 4.4 Mapa de Clusters por zona censal
+
+```{r echo=FALSE, warning=FALSE}
+# =============================================================================
+# 3) MAPA DE CLUSTERS
+# =============================================================================
+
+# para leer geometría de zonas censales
+sql_geom = "
+SELECT geocodigo::double precision, geom
+FROM dpa.zonas_censales_rm
+WHERE urbano = 1 AND (nom_provin = 'SANTIAGO' OR nom_comuna IN ('PUENTE ALTO', 'SAN BERNARDO'))
+"
+sf_zonas <- st_read(con, query = sql_geom)
+
+# Unir geometría con datos de clustering
+sf_mapa <- merge(sf_zonas, df_indicadores, by = "geocodigo")
+
+# Leer geometría de comunas para bordes y etiquetas
+sql_comunas = "
+SELECT cut, nom_comuna, geom
+FROM dpa.comunas_rm_shp
+WHERE nom_provin = 'SANTIAGO'
+"
+sf_comunas_santiago <- st_read(con, query = sql_comunas)
+
+# Bounding box
+bbox <- st_bbox(sf_mapa)
+
+# se Crea mapa de clusters
+ggplot() +
+  geom_sf(data = sf_mapa, aes(fill = cluster), color = NA) +
+  geom_sf(data = sf_comunas_santiago, fill = NA, color = "black", size = 0.3) +
+  geom_sf_text(data = st_centroid(sf_comunas_santiago), aes(label = nom_comuna), size = 2) +
+  scale_fill_brewer(palette = "Set2", name = "Cluster") +
+  labs(
+    title = "Clusters de Zonas Censales según variables microsimuladas",
+    subtitle = "Gran Santiago, 2025"
+  ) +
+  coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]),
+           ylim = c(bbox["ymin"], bbox["ymax"]),
+           expand = FALSE) +
+  theme_void()
+
+```
+
+**Cluster 1** — Color verde (Las Condes, Vitacura, Providencia, Ñuñoa, La Reina)
+Ubicación: sector oriente de Santiago.
+
+Ingreso mediano: alto.
+Atención salud mental: alta.
+Problemas de acceso: bajos o medios.
+
+Zonas de alto ingreso y alta cobertura en salud mental, con baja dificultad para llegar. Representan sectores con mejor infraestructura y servicios, podrian denominarse como "Zonas privilegiadas con buena cobertura"
+
+**Cluster 2** — Color naranjo (El Bosque, La Pintana, San Ramón, Cerro Navia, Renca, parte de Puente Alto)
+
+Ubicación: sur y norponiente de Santiago.
+
+Ingreso mediano: bajo.
+Atención salud mental: intermedia o baja.
+Problemas de acceso: altos.
+
+Zonas con vulnerabilidad alta y serios problemas de acceso a salud mental, pese a cierta demanda. Hay presión sobre los servicios y menor capital territorial.
+
+
+**Cluster 3** — Color azul (Maipú, San Bernardo, Pudahuel, La Florida, Lo Espejo, etc.)
+
+Ubicación: sectores intermedios o periféricos mixtos.
+Ingreso mediano: medio o medio-bajo.
+Atención salud mental: baja a media.
+Problemas de acceso: también bajos o medios.
+
+Este grupo representa zonas intermedias o de transición, con menor cobertura de salud mental, pero también menos reportes de problemas de acceso. Pueden reflejar menor demanda o menor visibilización del problema.
+
+
+### 4.5 Comparativa con los resultados de las microsimulaciones del trabajo 2
+
+Luego de obtener los resultados, surge la pregunta:
+¿Es coherente con lo observado en el Trabajo 2?
+para responder de manera visual, se adjuntan las imagenes obtenidas de las microsimulaciones en las cuales
+se basaron los cluster obtenidos, en especial con la variable principal la cual es si la persona
+acudio a salud mental en los ultimos 3 meses.
+
+
+```{r echo=FALSE, warning=FALSE}
+
+# Mapa de atención en salud mental
+ggplot(sf_mapa) +
+  geom_sf(aes(fill = atencion_salud_mental), color = NA) +
+  scale_fill_viridis_c(name = "% Atención Salud Mental", option = "C") +
+  theme_minimal() +
+  labs(title = "Porcentaje de personas con atención en salud mental")
+
+# Mapa de problemas de acceso
+ggplot(sf_mapa) +
+  geom_sf(aes(fill = problemas_para_llegar), color = NA) +
+  scale_fill_viridis_c(name = "% Problemas de acceso", option = "D") +
+  theme_minimal() +
+  labs(title = "Porcentaje que tuvo problemas para llegar a la atención")
+
+# Mapa de ingreso mediano
+ggplot(sf_mapa) +
+  geom_sf(aes(fill = mediana_ingreso), color = NA) +
+  scale_fill_viridis_c(name = "Ingreso mediano", option = "B") +
+  theme_minimal() +
+  labs(title = "Ingreso per cápita mediano por zona censal")
+
+```
+
+De la imagen del porcentaje de personas con atencion en salud mental se infiere:
+
+Altos valores en comunas del sector oriente (Providencia, Ñuñoa, Las Condes).
+Bajos niveles en zonas surponiente y norponiente.
+
+Para el porcentaje que tuvoproblemas para llegar a la atencion (centro de salud):
+
+Problemas más altos en zonas vulnerables como El Bosque, La Pintana, Cerro Navia.
+Zonas del oriente reportan menores dificultades.
+
+Y finalmente el ingreso per capita por zona censal, termina siendo el mas concluyente de todos
+y el que muestra mas diferencia significativa:
+
+Claramente más alto en Vitacura, Las Condes, La Reina.
+Bajo en comunas del sur y oeste de la ciudad.
+
+Para este ultimo se eligieron colores opuestos, para poder observar de manera mucho mas 
+clara, la enorme diferencia de ingresos por zonas censales, en especial en el sector ya mencionado(Las Condes, Vitacura, Providencia, Ñuñoa, La Reina)
+
+
+### 4.6 Resultados indice de shannon
+
+
+```{r echo=FALSE, warning=FALSE}
+# Se procede a leer las comunas
+sql_comunas = "
+SELECT cut, nom_comuna, geom
+FROM dpa.comunas_rm_shp
+WHERE nom_provin = 'SANTIAGO'
+"
+sf_comunas <- st_read(con, query = sql_comunas)
+
+# Unir zona censal a comuna
+sf_mapa_comunas <- st_join(sf_mapa, sf_comunas[, c("cut", "nom_comuna")])
+
+
+
+library(tibble)
+
+tabla_shannon <- sf_mapa_comunas |>
+  st_drop_geometry() |>
+  count(nom_comuna, cluster) |>
+  filter(!is.na(nom_comuna)) |>
+  tidyr::pivot_wider(names_from = cluster, values_from = n, values_fill = 0) |>
+  column_to_rownames("nom_comuna")
+
+
+library(vegan)
+
+shannon <- diversity(tabla_shannon, index = "shannon")
+
+df_shannon <- data.frame(
+  nom_comuna = names(shannon),
+  shannon_index = shannon
+)
+
+
+sf_comunas_shannon <- merge(sf_comunas, df_shannon, by = "nom_comuna")
+
+ggplot(sf_comunas_shannon) +
+  geom_sf(aes(fill = shannon_index), color = "white") +
+  scale_fill_viridis_c(name = "Índice de Shannon") +
+  labs(
+    title = "Variabilidad interna de clusters por comuna",
+    subtitle = "Índice de diversidad (mayor = más heterogénea)"
+  ) +
+  theme_minimal()
+
+```
+
+Valores cercanos a 0 indican comunas homogéneas, donde predomina un solo tipo de cluster.
+Valores mayores a 0.6 revelan comunas con alta mezcla de condiciones territoriales.
+
+Inferencia del grafico obtenido:
+Comunas como Santiago, Puente Alto, Maipú y San Bernardo presentan los mayores niveles de diversidad interna.
+En contraste, comunas como Vitacura, La Pintana o Lo Barnechea presentan baja heterogeneidad: están fuertemente dominadas por un solo perfil.
+
+Este índice refuerza la idea de que existen inequidades no solo entre comunas, sino también dentro de ellas.
+
+
+
+### 4.7 Valor agregado del trabajo
+Se responden a las preguntas realizadas por el profesor en el archivo pdf del trabajo 3
+¿Aporta algo nuevo este análisis respecto al anterior?
+Sí, este análisis aporta una nueva capa de interpretación territorial en comparación con los análisis previos. Mientras que en el trabajo anterior se generaron mapas individuales por variable microsimulada, el presente ejercicio de clustering permite integrar múltiples dimensiones simultáneamente (acceso, atención e ingreso), identificando patrones conjuntos de desigualdad.
+
+Además, el uso del índice de Shannon ofrece un valor agregado al evidenciar que las desigualdades no son solo intercomunales, sino también intracomunales. Comunas como Santiago, San Bernardo o Puente Alto, que podrían parecer homogéneas al analizar promedios, en realidad muestran una alta diversidad interna, lo que evidencia la existencia de zonas con realidades contrastantes dentro del mismo territorio administrativo.
+
+En resumen, este análisis permite:
+
+Descubrir tipologías de territorios según su composición multidimensional.
+Cuantificar la heterogeneidad interna, que no se aprecia en los promedios comunales.
+Darle una base empírica a la noción de fragmentación urbana, tan presente en estudios del Gran Santiago.
+
+Tambien, se responde a la otra pregunta presentada en el pdf enviado por el profesor, ¿En qué podría ser útil conocer la distribución de estos grupos en la práctica?
+
+Conocer la distribución espacial de estos clusters puede ser altamente útil para la planificación de políticas públicas, en particular en sectores como salud, transporte, educación y asistencia social. Algunas aplicaciones concretas:
+
+Asignación focalizada de recursos: permite priorizar zonas donde coinciden altos problemas de acceso y bajos niveles de atención (ej. Cluster 2).
+
+Diseño de programas diferenciados: los tres grupos territoriales no requieren la misma intervención. Por ejemplo, el Cluster 1 podría beneficiarse de mejoras en eficiencia, mientras que el Cluster 2 necesita mayor cobertura y accesibilidad.
+
+Identificación de brechas dentro de las comunas: gracias al índice de Shannon, se pueden diseñar políticas intra-comunales que respondan a diferencias internas, más allá de tratar la comuna como una unidad homogénea.
+
+Mejorar localización de servicios: si se sabe qué zonas tienen menor acceso y mayor demanda, se puede optimizar la ubicación de nuevos centros de salud, rutas de transporte o programas sociales.
+
+Comunicación más efectiva: al conocer los perfiles territoriales, se pueden diseñar campañas o intervenciones más ajustadas al contexto socioterritorial de cada grupo.
+
+
+
+## 5. Conclusiones y recomendaciones
+
+Este trabajo logró avanzar hacia una comprensión más compleja y profunda de las desigualdades territoriales en el Gran Santiago, a través de la aplicación de técnicas de agrupamiento espacial (K-means) sobre indicadores construidos por microsimulación. A diferencia de los análisis previos —donde cada variable era analizada de forma aislada— este enfoque permitió integrar tres dimensiones clave: atención en salud mental, dificultades de acceso y nivel socioeconómico.
+
+La segmentación resultante reveló una tipología territorial clara, compuesta por tres grupos:
+
+- Zonas con alto ingreso y buena cobertura (Cluster 1),
+- Zonas intermedias o de transición social (Cluster 3), y
+- Zonas vulnerables con baja cobertura y alta dificultad de acceso (Cluster 2).
+
+La distribución espacial de estos grupos evidencia una fuerte segregación estructural: el oriente de la ciudad sigue concentrando condiciones favorables, mientras que sectores surponiente y norponiente acumulan desventajas. Además, el uso del índice de Shannon mostró que muchas comunas presentan **alta heterogeneidad interna**, lo que sugiere que intervenir a escala comunal puede ser insuficiente si no se consideran las diferencias subterritoriales.
+
+En conjunto, los resultados muestran que **las desigualdades en salud mental están territorializadas** y profundamente relacionadas con la estructura socioespacial de la ciudad. El cruce entre ingreso, acceso y atención permite visualizar esta realidad de manera más completa que el uso de variables por separado.
+
+### 5.1 Recomendaciones
+
+**1. Profundizar el análisis incorporando nuevas variables del Censo 2017.**  
+Futuros trabajos podrían integrar variables como la **precariedad habitacional**, la **escolaridad agregada** o el **envejecimiento poblacional**. Estas dimensiones permitirían ampliar el enfoque hacia otras formas de vulnerabilidad territorial no capturadas por las variables actuales.
+
+**2. Aplicar esta metodología a otras regiones del país.**  
+La replicabilidad del modelo permite realizar un análisis comparativo entre regiones o macrozonas, identificando patrones comunes o divergentes en términos de exclusión territorial.
+
+**3. Utilizar esta tipología para diseñar políticas públicas diferenciadas.**  
+Los resultados podrían utilizarse como insumo para **focalizar intervenciones en salud mental**, **ubicar nuevos centros de atención** o **reforzar programas de acompañamiento psicosocial**, adaptando las acciones a las características de cada tipo de territorio.
+
+**4. Incorporar capas de accesibilidad física y transporte.**  
+Incluir variables espaciales relacionadas con la **cercanía a servicios**, **tiempos de viaje** o **accesibilidad al transporte público** permitiría construir una imagen más completa de las barreras reales que enfrenta la población.
+
+**5. Fortalecer la escala subcomunal en los diagnósticos territoriales.**  
+Los altos niveles de heterogeneidad interna observados en muchas comunas (vía el índice de Shannon) refuerzan la necesidad de pasar del diagnóstico comunal a una planificación **multiescalar**, que incorpore zonas censales u otras unidades más pequeñas como base de decisión.
+
+---
+
+En definitiva, este trabajo no solo confirma desigualdades ya conocidas, sino que **revela cómo estas se expresan, combinan y ocultan al interior del tejido urbano**. Al aplicar técnicas de análisis espacial con datos simulados, se habilita un enfoque más estratégico y territorializado para comprender y actuar sobre las brechas sociales en la ciudad.
+
+
+
+
+
